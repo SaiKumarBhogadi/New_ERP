@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Delivery Note Return - {{ delivery_note_return.DNR_ID }}</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f5f6fa;
+      color: #333;
+      margin: 0;
+      padding: 0;
+    }
+
+    .email-container {
+      max-width: 700px;
+      margin: 30px auto;
+      background-color: #ffffff;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    .header {
+      background-color: #1e40af;
+      color: white;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .content {
+      padding: 30px;
+    }
+
+    h2 {
+      color: #1e40af;
+      margin-bottom: 10px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+
+    table th, table td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    table th {
+      background-color: #f1f5f9;
+    }
+
+    .footer {
+      background-color: #f1f5f9;
+      text-align: center;
+      padding: 15px;
+      font-size: 12px;
+      color: #555;
+    }
+
+    ul {
+      padding-left: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="email-container">
+    <div class="header">
+      <h1>Delivery Note Return</h1>
+      <p>ID: <strong>{{ delivery_note_return.DNR_ID }}</strong></p>
+    </div>
+
+    <div class="content">
+      <h2>Customer Details</h2>
+      <p><strong>Customer:</strong> {{ delivery_note_return.customer.name|default:"N/A" }}</p>
+      <p><strong>Contact Person:</strong> {{ delivery_note_return.contact_person|default:"N/A" }}</p>
+      <p><strong>Email:</strong> {{ delivery_note_return.email_id|default:"N/A" }}</p>
+      <p><strong>Phone:</strong> {{ delivery_note_return.phone_number|default:"N/A" }}</p>
+      <p><strong>Customer Ref No:</strong> {{ delivery_note_return.customer_reference_no|default:"N/A" }}</p>
+
+      <hr>
+
+      <h2>Return Details</h2>
+      <p><strong>Date:</strong> {{ delivery_note_return.dnr_date }}</p>
+<p>
+  <strong>Status:</strong>
+  <span style="display: inline-block; padding: 5px 10px; border-radius: 5px; font-weight: bold; color: white; background-color: {% if delivery_note_return.status == 'Submitted' %}#16a34a{% elif delivery_note_return.status == 'Cancelled' %}#dc2626{% else %}#f59e0b{% endif %};">
+    {{ delivery_note_return.status }}
+  </span>
+</p>
+
+      <p><strong>Invoice Return Reference:</strong>
+        {{ delivery_note_return.invoice_return_reference.invoice_return_id|default:"N/A" }}
+      </p>
+
+      {% if delivery_note_return.items.all %}
+      <h3>Returned Items</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>UOM</th>
+            <th>Invoiced Qty</th>
+            <th>Returned Qty</th>
+            <th>Return Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in delivery_note_return.items.all %}
+          <tr>
+            <td>{{ item.product.name|default:"N/A" }}</td>
+            <td>{{ item.uom|default:"-" }}</td>
+            <td>{{ item.invoiced_qty }}</td>
+            <td>{{ item.returned_qty }}</td>
+            <td>{{ item.return_reason|default:"-" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      {% if delivery_note_return.remarks.all %}
+      <h3>Remarks</h3>
+      <ul>
+        {% for remark in delivery_note_return.remarks.all %}
+          <li>
+            {{ remark.text }} —
+            <em>{{ remark.created_by.username|default:"System" }} ({{ remark.timestamp|date:"d M Y, H:i" }})</em>
+          </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+
+    <div class="footer">
+      <p>This is an automated email. Please do not reply directly.</p>
+      <p>© {{ now|date:"Y" }} Your Company Name</p>
+    </div>
+  </div>
+</body>
+</html>

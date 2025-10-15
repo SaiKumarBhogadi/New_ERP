@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Welcome to Our Site</title>
+</head>
+<body>
+    <p>Hello {{ first_name }},</p>
+
+    <p>Your account has been successfully created on <strong>{{ site_name }}</strong>.</p>
+
+    <p><strong>Login Details:</strong></p>
+    <ul>
+        <li>Email: {{ email }}</li>
+        <li>Temporary Password: {{ password }}</li>
+    </ul>
+
+    <p>Please follow these steps to get started:</p>
+    <ol>
+        <li>Go to our site: <a href="{{ site_link }}">{{ site_link }}</a></li>
+        <li>Login using the above credentials.</li>
+        <li>Immediately change your password for security by visiting your profile page.</li>
+    </ol>
+
+    <p>Thank you,<br>
+    The {{ site_name }} Team</p>
+</body>
+</html>
