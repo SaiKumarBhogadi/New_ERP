@@ -109,6 +109,7 @@ class QuotationAttachment(models.Model):
     quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='attachments')
     file = models.FileField(upload_to='attachments/', blank=True, null=True)  # Replaced URL with FileField
     uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='uploaded_attachments')
+    timestamp = models.DateTimeField(auto_now_add=True)
 
 class QuotationComment(models.Model):
     quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='comments')

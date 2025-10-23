@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial, sans-serif; font-size: 12px; margin: 20px; }
+        h1 { font-size: 18px; margin-bottom: 10px; }
+        h2 { font-size: 14px; margin: 10px 0; }
+        .field { margin-bottom: 5px; }
+        .field label { font-weight: bold; display: inline-block; width: 150px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #000; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .summary { margin-top: 20px; }
+        .footer { margin-top: 20px; font-size: 10px; color: #555; }
+        .text-right { text-align: right; }
+    </style>
+</head>
+<body>
+    <h1>Quotation</h1>
+    <div class="field"><label>Quotation ID:</label> {{ quotation.quotation_id }}</div>
+    <div class="field"><label>Quotation Date:</label> {{ quotation.quotation_date }}</div>
+    <div class="field"><label>Expiry Date:</label> {{ quotation.expiry_date }}</div>
+    <div class="field"><label>Customer:</label> {{ quotation.customer_name.name }}</div>
+    <div class="field"><label>Customer PO Reference:</label> {{ quotation.customer_po_referance|default:"N/A" }}</div>
+    <div class="field"><label>Sales Representative:</label> {{ quotation.sales_rep.role|default:"N/A" }}</div>
+    <div class="field"><label>Quotation Type:</label> {{ quotation.quotation_type }}</div>
+    <div class="field"><label>Currency:</label> {{ quotation.currency }}</div>
+    <div class="field"><label>Payment Terms:</label> {{ quotation.payment_terms|default:"N/A" }}</div>
+    <div class="field"><label>Expected Delivery:</label> {{ quotation.expected_delivery }}</div>
+    <div class="field"><label>Status:</label> {{ quotation.status }}</div>
+    <div class="field"><label>Revision Count:</label> {{ quotation.revise_count }}</div>
+
+    <h2>Line Items</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>Description</th>
+                <th>UOM</th>
+                <th>Qty</th>
+                <th>Unit Price</th>
+                <th>Tax (%)</th>
+                <th>Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td>{{ item.product_id.name }}</td>
+                <td>{{ item.product_name }}</td>
+                <td>{{ item.uom.name }}</td>
+                <td>{{ item.quantity }}</td>
+                <td>{{ item.unit_price }}</td>
+                <td>{{ item.tax }}</td>
+                <td>{{ item.total }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="7">No items found</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="summary">
+        <h2>Summary</h2>
+        <table style="width: 50%; float: right;">
+            <tr>
+                <td><strong>Subtotal:</strong></td>
+                <td class="text-right">{{ quotation.currency }} {{ subtotal|floatformat:2 }}</td>
+            </tr>
+            <tr>
+                <td><strong>Global Discount ({{ quotation.globalDiscount }}%):</strong></td>
+                <td class="text-right">- {{ quotation.currency }} {{ global_discount_amount|floatformat:2 }}</td>
+            </tr>
+            <tr>
+                <td><strong>Shipping Charges:</strong></td>
+                <td class="text-right">{{ quotation.currency }} {{ quotation.shippingCharges|floatformat:2 }}</td>
+            </tr>
+            <tr style="border-top: 2px solid #000;">
+                <td><strong>Grand Total:</strong></td>
+                <td class="text-right"><strong>{{ quotation.currency }} {{ grand_total|floatformat:2 }}</strong></td>
+            </tr>
+        </table>
+        <div style="clear: both;"></div>
+    </div>
+
+    <div class="footer">
+        Generated on: {{ quotation.created_at|date:"Y-m-d H:i" }}
+    </div>
+</body>
+</html>

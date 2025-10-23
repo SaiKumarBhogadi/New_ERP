@@ -71,7 +71,7 @@ class QuotationItemSerializer(serializers.ModelSerializer):
 
 class QuotationAttachmentSerializer(serializers.ModelSerializer):
     uploaded_by = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), default=serializers.CurrentUserDefault())
-    file = serializers.FileField()
+    file = serializers.FileField(required = False,allow_null=True)
 
     class Meta:
         model = QuotationAttachment

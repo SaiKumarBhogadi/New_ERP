@@ -11,7 +11,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from django.db.models.functions import ExtractMonth
 from .models import Candidate, CandidateDocument, Attendance, GovernmentHoliday, Task
-from .serializers import CandidateSerializer, AttendanceSerializer, CheckInOutSerializer, GovernmentHolidaySerializer, TaskSerializer, TaskSummarySerializer, TaskDataSerializer, DashboardAttendanceSerializer, LoginSerializer, ForgotPasswordSerializer, ResetPasswordSerializer, ProfileChangePasswordSerializer
+from .serializers import CandidateSerializer, AttendanceSerializer, CheckInOutSerializer, GovernmentHolidaySerializer, TaskSerializer, TaskSummarySerializer, TaskDataSerializer, DashboardAttendanceSerializer, LoginSerializer, ForgotPasswordSerializer, ResetPasswordSerializer, ProfileChangePasswordSerializer,ProfileUpdateSerializer
 import logging
 from masters.models import CustomUser
 from masters.serializers import CustomUserDetailSerializer,CustomUserCreateSerializer, CustomUserUpdateSerializer
@@ -124,6 +124,7 @@ class ProfileView(APIView):
 
     def get(self, request):
         serializer = CustomUserDetailSerializer(request.user)
+        logger.info(f"Profile retrieved for user: {request.user.email}")
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def put(self, request):
@@ -133,17 +134,22 @@ class ProfileView(APIView):
             'confirm_password': data.pop('confirm_password', None)
         }
 
-        serializer = CustomUserUpdateSerializer(request.user, data=data, partial=True)
+        serializer = ProfileUpdateSerializer(request.user, data=data, partial=True)
         if serializer.is_valid():
             user = serializer.save()
+            logger.info(f"Profile updated for user: {request.user.email}, updated fields: {serializer.validated_data}")
             if password_data['password'] and password_data['confirm_password']:
                 password_serializer = ProfileChangePasswordSerializer(data=password_data)
                 if password_serializer.is_valid():
                     password_serializer.update(request.user, password_serializer.validated_data)
+                    logger.info(f"Password updated for user: {request.user.email}")
                 else:
+                    logger.error(f"Password update failed for user: {request.user.email}, errors: {password_serializer.errors}")
                     return Response(password_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             return Response(CustomUserDetailSerializer(user).data, status=status.HTTP_200_OK)
+        logger.error(f"Profile update failed for user: {request.user.email}, errors: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class OnboardingListView(APIView):
     permission_classes = [permissions.IsAuthenticated]

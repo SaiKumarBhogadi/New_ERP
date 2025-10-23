@@ -247,11 +247,18 @@ class QuotationRevisionView(APIView):
             return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
+
+
+
+from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
-from .models import Quotation
-from .serializers import QuotationSerializer
 from django.core.exceptions import ObjectDoesNotExist
+from django.http import HttpResponse
+from django.template.loader import render_to_string
+from weasyprint import HTML
+import io
+from .models import Quotation
 
 class QuotationPDFView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -259,12 +266,42 @@ class QuotationPDFView(APIView):
     def get(self, request, pk):
         try:
             quotation = Quotation.objects.get(id=pk, user=request.user)
-            serializer = QuotationSerializer(quotation)
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+            # Calculate totals
+            items = quotation.items.all()
+            subtotal = sum(item.total for item in items)
+            global_discount_amount = subtotal * (quotation.globalDiscount / 100)
+            grand_total = subtotal - global_discount_amount + quotation.shippingCharges
+
+            context = {
+                'quotation': quotation,
+                'items': items,
+                'subtotal': subtotal,
+                'global_discount_amount': global_discount_amount,
+                'grand_total': grand_total,
+            }
+
+            # Render HTML
+            html_string = render_to_string('quotation_pdf.html', context)
+
+            # Generate PDF with WeasyPrint
+            html = HTML(string=html_string, base_url=request.build_absolute_uri('/'))
+            pdf_file = io.BytesIO()
+            html.write_pdf(pdf_file)
+
+            # Return PDF
+            pdf_file.seek(0)
+            response = HttpResponse(content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="quotation_{quotation.quotation_id}.pdf"'
+            response.write(pdf_file.getvalue())
+            pdf_file.close()
+
+            return response
+
         except ObjectDoesNotExist:
             return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
-            return Response({'error': f'PDF data fetch failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': f'PDF generation failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 class QuotationEmailView(APIView):
       permission_classes = [permissions.IsAuthenticated]

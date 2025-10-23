@@ -89,7 +89,7 @@ class Department(models.Model):
 class Role(models.Model):
     branch = models.ForeignKey(Branch, on_delete=models.SET_NULL, null=True)
     department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name='roles')
-    role = models.CharField(max_length=10)
+    role = models.CharField(max_length=25)
     description = models.TextField(blank=True, null=True)
     permissions = JSONField(default=dict, blank=True)
 

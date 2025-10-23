@@ -50,6 +50,33 @@ class ProfileChangePasswordSerializer(serializers.Serializer):
         instance.set_password(validated_data['password'])
         instance.save()
         return instance
+    
+class ProfileUpdateSerializer(serializers.ModelSerializer):
+    # Fields that regular users can update
+    first_name = serializers.CharField(required=False)
+    last_name = serializers.CharField(required=False, allow_blank=True)
+    contact_number = serializers.CharField(max_length=15, allow_blank=True, allow_null=True)
+    profile_pic = serializers.ImageField(allow_empty_file=True, required=False)
+
+    class Meta:
+        model = CustomUser
+        fields = ['first_name', 'last_name', 'contact_number', 'profile_pic']
+
+    def validate(self, data):
+        # Check for restricted fields in the incoming data
+        restricted_fields = ['branch', 'department', 'role', 'employee_id', 'email', 'available_branches', 'reporting_to']
+        received_fields = set(self.initial_data.keys())
+        invalid_fields = received_fields.intersection(restricted_fields)
+        if invalid_fields:
+            raise serializers.ValidationError({
+                'error': f"You are not allowed to change the following fields: {', '.join(invalid_fields)}"
+            })
+        return data
+
+    def validate_contact_number(self, value):
+        if value and not value.replace("+", "").replace("-", "").replace(" ", "").isdigit():
+            raise serializers.ValidationError("Contact number must contain only digits, +, -, or spaces.")
+        return value
 
 class CandidateDocumentSerializer(serializers.ModelSerializer):
     file = serializers.FileField()
