@@ -256,9 +256,13 @@ from rest_framework import status, permissions
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import HttpResponse
 from django.template.loader import render_to_string
-from weasyprint import HTML
-import io
-from .models import Quotation
+import pdfkit
+import os
+from .models import Quotation, InvoiceReturn, DeliveryNoteReturn
+
+# Dynamic wkhtmltopdf path for Windows and Linux
+WKHTMLTOPDF_PATH = r'C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe' if os.name == 'nt' else '/usr/bin/wkhtmltopdf'
+config = pdfkit.configuration(wkhtmltopdf=WKHTMLTOPDF_PATH)
 
 class QuotationPDFView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -266,8 +270,6 @@ class QuotationPDFView(APIView):
     def get(self, request, pk):
         try:
             quotation = Quotation.objects.get(id=pk, user=request.user)
-            
-            # Calculate totals
             items = quotation.items.all()
             subtotal = sum(item.total for item in items)
             global_discount_amount = subtotal * (quotation.globalDiscount / 100)
@@ -281,21 +283,25 @@ class QuotationPDFView(APIView):
                 'grand_total': grand_total,
             }
 
-            # Render HTML
             html_string = render_to_string('quotation_pdf.html', context)
+            pdf = pdfkit.from_string(
+                html_string,
+                False,
+                configuration=config,
+                options={
+                    'page-size': 'A4',
+                    'margin-top': '0.75in',
+                    'margin-right': '0.75in',
+                    'margin-bottom': '0.75in',
+                    'margin-left': '0.75in',
+                    'encoding': "UTF-8",
+                    'no-outline': None
+                }
+            )
 
-            # Generate PDF with WeasyPrint
-            html = HTML(string=html_string, base_url=request.build_absolute_uri('/'))
-            pdf_file = io.BytesIO()
-            html.write_pdf(pdf_file)
-
-            # Return PDF
-            pdf_file.seek(0)
             response = HttpResponse(content_type='application/pdf')
             response['Content-Disposition'] = f'attachment; filename="quotation_{quotation.quotation_id}.pdf"'
-            response.write(pdf_file.getvalue())
-            pdf_file.close()
-
+            response.write(pdf)
             return response
 
         except ObjectDoesNotExist:
