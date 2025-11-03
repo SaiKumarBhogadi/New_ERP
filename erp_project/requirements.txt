@@ -1,5 +1,5 @@
 ﻿asgiref==3.8.1
-backports.zoneinfo==0.2.1
+#backports.zoneinfo==0.2.1
 charset-normalizer==3.4.2
 django==4.2.23
 django-cors-headers==4.4.0
@@ -17,4 +17,5 @@ six==1.17.0
 sqlparse==0.5.3
 typing-extensions==4.13.2
 tzdata==2025.2
+
 
