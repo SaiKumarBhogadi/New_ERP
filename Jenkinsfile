@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        # Jenkins WORKSPACE is the checkout directory for this job
+        // Jenkins WORKSPACE is the checkout directory for this job
         BACKEND_DIR = "${WORKSPACE}/erp_project"
         VENV_DIR = "${BACKEND_DIR}/venv"
     }
@@ -11,8 +11,6 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                // Jenkins will still checkout the repository before running stages;
-                // keep this to clearly show which repo is used by this job
                 git branch: 'main', credentialsId: 'github-token', url: 'https://github.com/vasavamshi-vv/New_ERP_Backend.git'
             }
         }
@@ -24,7 +22,6 @@ pipeline {
                 echo "WORKSPACE=${WORKSPACE}"
                 echo "Using BACKEND_DIR=${BACKEND_DIR}"
 
-                # ensure backend dir exists
                 if [ ! -d "${BACKEND_DIR}" ]; then
                   echo "Error: ${BACKEND_DIR} not found"
                   exit 1
@@ -32,7 +29,6 @@ pipeline {
 
                 cd "${BACKEND_DIR}"
 
-                # create venv if not exists
                 if [ ! -d "${VENV_DIR}" ]; then
                   python3 -m venv "${VENV_DIR}"
                 fi
@@ -59,7 +55,6 @@ pipeline {
         stage('Restart Backend Services') {
             steps {
                 sh '''
-                # restart system services (requires sudo setup in /etc/sudoers for jenkins/ubuntu)
                 sudo systemctl restart gunicorn || true
                 sudo systemctl restart nginx || true
                 '''
@@ -69,11 +64,10 @@ pipeline {
         stage('Smoke Test') {
             steps {
                 sh '''
-                # check local backend endpoint (gunicorn should bind to 127.0.0.1:8000 or socket as configured)
                 if curl -sSf http://127.0.0.1:8000/ >/dev/null 2>&1; then
-                  echo "Smoke test OK (127.0.0.1:8000 reachable)"
+                  echo "Smoke test OK"
                 else
-                  echo "Smoke test failed: 127.0.0.1:8000 not reachable"
+                  echo "Smoke test failed"
                   exit 1
                 fi
                 '''
