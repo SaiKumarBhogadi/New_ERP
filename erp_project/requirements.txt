@@ -1,22 +1,49 @@
-﻿asgiref==3.8.1
-#backports.zoneinfo==0.2.1
-charset-normalizer==3.4.2
-django==4.2.23
+# ============================
+# 🌐 Django Core Framework
+# ============================
+Django==4.2.23
+djangorestframework==3.15.2
 django-cors-headers==4.4.0
 django-rest-auth==0.9.5
-djangorestframework==3.15.2
+asgiref==3.8.1
+sqlparse==0.5.3
+tzdata==2025.2
+
+# ============================
+# 🧰 Database & MySQL Connectivity
+# ============================
+PyMySQL==1.1.1
+cryptography==43.0.1       # Required for SHA256 MySQL authentication
+mysqlclient==2.2.4         # (Optional but faster native driver — keep for production)
+
+# ============================
+# ⚙️ Config & Environment
+# ============================
+python-decouple==3.8       # For reading .env files
+pytz==2025.2               # Timezone support
+
+# ============================
+# 📊 Data, Files, PDF & Excel
+# ============================
 numpy==1.24.4
 pandas==2.0.3
 pillow==10.4.0
-PyMySQL==1.1.1
-python-dateutil==2.9.0.post0
-python-decouple==3.8
-pytz==2025.2
-reportlab==3.6.12
-six==1.17.0
-sqlparse==0.5.3
+reportlab==3.6.12          # For PDF report generation
+pdfkit==1.0.0              # HTML-to-PDF conversion (requires wkhtmltopdf installed in system)
+openpyxl==3.1.5            # For Excel file exports
+xlrd==2.0.1                # For reading legacy Excel files
+
+# ============================
+# 🖥️ Server, Deployment & Static
+# ============================
+gunicorn==22.0.0           # Production WSGI server
+whitenoise==6.6.0          # For serving static files
+requests==2.32.3
+charset-normalizer==3.4.2
 typing-extensions==4.13.2
-tzdata==2025.2
-pdfkit==1.0.0
+six==1.17.0
 
-
+# ============================
+# 🧪 Utilities & Helpers
+# ============================
+python-dateutil==2.9.0.post0
