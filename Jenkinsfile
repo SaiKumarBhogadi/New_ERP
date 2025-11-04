@@ -58,6 +58,14 @@ pipeline {
                 '''
             }
         }
+        stage('Restart Backend Services') {
+    steps {
+        sh '''
+        echo "Restarting Gunicorn service..."
+        sudo systemctl restart gunicorn
+        '''
+    }
+}
 
         stage('Smoke Test') {
             steps {
