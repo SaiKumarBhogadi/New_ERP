@@ -19,7 +19,7 @@ pipeline {
         stage('📦 Setup Virtual Environment & Install Dependencies') {
             steps {
                 echo "Setting up virtual environment..."
-                sh '''
+                sh '''#!/bin/bash
                 set -e
                 if [ ! -d "$VENV_DIR" ]; then
                     python3 -m venv $VENV_DIR
@@ -35,7 +35,7 @@ pipeline {
         stage('🧹 Apply Migrations & Collect Static Files') {
             steps {
                 echo "Applying migrations and collecting static files..."
-                sh '''
+                sh '''#!/bin/bash
                 set -e
                 export $(grep -v '^#' $ENV_FILE | xargs)
                 cd $APP_DIR
@@ -50,7 +50,7 @@ pipeline {
         stage('🚀 Restart Gunicorn & Nginx') {
             steps {
                 echo "Restarting backend services..."
-                sh '''
+                sh '''#!/bin/bash
                 sudo systemctl restart gunicorn
                 sudo systemctl restart nginx
                 '''
@@ -60,7 +60,7 @@ pipeline {
         stage('🧪 Smoke Test') {
             steps {
                 echo "Performing health check..."
-                sh '''
+                sh '''#!/bin/bash
                 sleep 5
                 curl -f http://127.0.0.1:8000/ || exit 1
                 '''
