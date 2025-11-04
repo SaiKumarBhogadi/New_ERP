@@ -2,13 +2,11 @@ pipeline {
     agent any
 
     environment {
-        // Jenkins WORKSPACE is the checkout directory for this job
         BACKEND_DIR = "${WORKSPACE}/erp_project"
         VENV_DIR = "${BACKEND_DIR}/venv"
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 git branch: 'main', credentialsId: 'github-token', url: 'https://github.com/vasavamshi-vv/New_ERP_Backend.git'
@@ -18,7 +16,7 @@ pipeline {
         stage('Setup Virtual Environment & Install Requirements') {
             steps {
                 sh '''
-                set -euo pipefail
+                set -e
                 echo "WORKSPACE=${WORKSPACE}"
                 echo "Using BACKEND_DIR=${BACKEND_DIR}"
 
@@ -43,7 +41,7 @@ pipeline {
         stage('Migrate & Collectstatic') {
             steps {
                 sh '''
-                set -euo pipefail
+                set -e
                 . "${VENV_DIR}/bin/activate"
                 cd "${BACKEND_DIR}"
                 python3 manage.py migrate --noinput
@@ -65,9 +63,9 @@ pipeline {
             steps {
                 sh '''
                 if curl -sSf http://127.0.0.1:8000/ >/dev/null 2>&1; then
-                  echo "Smoke test OK"
+                  echo "Smoke test OK (127.0.0.1:8000 reachable)"
                 else
-                  echo "Smoke test failed"
+                  echo "Smoke test failed: 127.0.0.1:8000 not reachable"
                   exit 1
                 fi
                 '''
