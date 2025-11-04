@@ -2,73 +2,90 @@ pipeline {
     agent any
 
     environment {
-        QA_SERVER_IP = "52.62.232.250"
-        BACKEND_DIR = "${WORKSPACE}/erp_project"
-        VENV_DIR = "${BACKEND_DIR}/venv"
-        DEPLOY_USER = "ubuntu"
-        DEPLOY_PATH = "/home/ubuntu/ERP-Backend-QA"
+        PROJECT_DIR = '/home/ubuntu/ERP-Backend-QA/erp_project'
+        VENV_DIR = "${PROJECT_DIR}/venv"
+        SERVICE_NAME = 'gunicorn_qa'
     }
 
     stages {
-        stage('Checkout') {
+
+        stage('📥 Pull Latest Code') {
             steps {
-                echo "🔄 Checking out QA branch..."
-                checkout scm
+                echo "Fetching latest code from QA branch..."
+                dir("${PROJECT_DIR}") {
+                    sh '''
+                        git fetch origin qa
+                        git checkout qa
+                        git reset --hard origin/qa
+                    '''
+                }
             }
         }
 
-        stage('Setup Virtual Env & Dependencies') {
+        stage('📦 Install Dependencies') {
             steps {
+                echo "Installing Python dependencies..."
                 sh '''
-                cd "${BACKEND_DIR}"
-                if [ ! -d "${VENV_DIR}" ]; then
-                    python3 -m venv "${VENV_DIR}"
-                fi
-                . "${VENV_DIR}/bin/activate"
-                pip install --upgrade pip
-                pip install -r requirements.txt
+                    cd ${PROJECT_DIR}
+                    if [ ! -d "${VENV_DIR}" ]; then
+                        python3 -m venv ${VENV_DIR}
+                    fi
+                    source ${VENV_DIR}/bin/activate
+                    pip install --upgrade pip
+                    pip install -r requirements.txt
                 '''
             }
         }
 
-        stage('Run DB Migrations & Collectstatic') {
+        stage('🧹 Apply Migrations & Collect Static Files') {
             steps {
+                echo "Applying database migrations..."
                 sh '''
-                cd "${BACKEND_DIR}"
-                . "${VENV_DIR}/bin/activate"
-                python3 manage.py migrate --noinput
-                python3 manage.py collectstatic --noinput || true
+                    source ${VENV_DIR}/bin/activate
+                    cd ${PROJECT_DIR}
+                    python3 manage.py migrate
+                    python3 manage.py collectstatic --noinput || true
                 '''
             }
         }
 
-        stage('Restart Gunicorn (QA Server)') {
+        stage('🚀 Restart Gunicorn & Nginx') {
             steps {
+                echo "Restarting Gunicorn & Nginx services..."
                 sh '''
-                echo "Restarting Gunicorn QA service..."
-                sudo systemctl restart gunicorn
-                sudo systemctl status gunicorn --no-pager || true
+                    sudo systemctl daemon-reload
+                    sudo systemctl restart ${SERVICE_NAME}
+                    sudo systemctl restart nginx
+                    sudo systemctl enable ${SERVICE_NAME}
                 '''
             }
         }
 
-        stage('Smoke Test') {
+        stage('🧪 Smoke Test') {
             steps {
-                sh '''
-                echo "Performing QA smoke test..."
-                sleep 5
-                curl -I http://127.0.0.1:8000/admin || { echo "Smoke test failed for QA"; exit 1; }
-                '''
+                echo "Running smoke test on QA server..."
+                script {
+                    def result = sh(
+                        script: "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/admin",
+                        returnStdout: true
+                    ).trim()
+
+                    if (result != "302") {
+                        error("❌ Smoke test failed! Backend not reachable (HTTP ${result})")
+                    } else {
+                        echo "✅ Smoke test passed! Admin portal reachable."
+                    }
+                }
             }
         }
     }
 
     post {
         success {
-            echo "✅ QA Backend Pipeline successful!"
+            echo "✅ QA Backend Deployed Successfully on $(hostname)"
         }
         failure {
-            echo "❌ QA Backend Pipeline failed. Check logs."
+            echo "❌ Deployment Failed! Please check Jenkins logs."
         }
     }
 }
