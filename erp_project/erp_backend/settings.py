@@ -106,9 +106,9 @@ WSGI_APPLICATION = 'erp_backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'new_erp',
-        'USER': 'erp_admin',
-        'PASSWORD': 'Test@123',
+        'NAME': 'erp_qa',
+        'USER': 'erp_qa_user',
+        'PASSWORD': 'Qa@123',
         'HOST': 'localhost',
         'PORT': '3306',
         'OPTIONS': {
