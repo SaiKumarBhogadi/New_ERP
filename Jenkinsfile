@@ -82,7 +82,7 @@ pipeline {
 
     post {
         success {
-            echo "✅ QA Backend Deployed Successfully on $(hostname)"
+            sh 'echo "✅ QA Backend Deployed Successfully on $(hostname)"'
         }
         failure {
             echo "❌ Deployment Failed! Please check Jenkins logs."
