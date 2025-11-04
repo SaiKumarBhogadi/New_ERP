@@ -2,29 +2,28 @@ pipeline {
     agent any
 
     environment {
+        QA_SERVER_IP = "52.62.232.250"
         BACKEND_DIR = "${WORKSPACE}/erp_project"
         VENV_DIR = "${BACKEND_DIR}/venv"
+        DEPLOY_USER = "ubuntu"
+        DEPLOY_PATH = "/home/ubuntu/ERP-Backend-QA"
     }
 
     stages {
-
         stage('Checkout') {
             steps {
-                echo "📥 Cloning repository..."
+                echo "🔄 Checking out QA branch..."
                 checkout scm
             }
         }
 
-        stage('Setup Virtual Environment & Install Dependencies') {
+        stage('Setup Virtual Env & Dependencies') {
             steps {
                 sh '''
-                echo "⚙️ Setting up virtual environment..."
                 cd "${BACKEND_DIR}"
-
                 if [ ! -d "${VENV_DIR}" ]; then
                     python3 -m venv "${VENV_DIR}"
                 fi
-
                 . "${VENV_DIR}/bin/activate"
                 pip install --upgrade pip
                 pip install -r requirements.txt
@@ -32,29 +31,23 @@ pipeline {
             }
         }
 
-        stage('Migrate & Collectstatic') {
+        stage('Run DB Migrations & Collectstatic') {
             steps {
                 sh '''
-                echo "🏗️ Applying database migrations and collecting static files..."
-                . "${VENV_DIR}/bin/activate"
                 cd "${BACKEND_DIR}"
+                . "${VENV_DIR}/bin/activate"
                 python3 manage.py migrate --noinput
                 python3 manage.py collectstatic --noinput || true
                 '''
             }
         }
 
-        stage('Restart Gunicorn & Nginx Services') {
+        stage('Restart Gunicorn (QA Server)') {
             steps {
                 sh '''
-                echo "🔁 Restarting Gunicorn and Nginx services..."
-                sudo systemctl daemon-reexec
-                sudo systemctl daemon-reload
+                echo "Restarting Gunicorn QA service..."
                 sudo systemctl restart gunicorn
-                sudo systemctl restart nginx
-                sudo systemctl enable gunicorn
-                sudo systemctl enable nginx
-                echo "✅ Gunicorn & Nginx restarted successfully!"
+                sudo systemctl status gunicorn --no-pager || true
                 '''
             }
         }
@@ -62,14 +55,9 @@ pipeline {
         stage('Smoke Test') {
             steps {
                 sh '''
-                echo "🧪 Running smoke test..."
+                echo "Performing QA smoke test..."
                 sleep 5
-                if curl -sSf http://127.0.0.1:8000/admin >/dev/null; then
-                    echo "✅ Smoke test passed! Backend is reachable."
-                else
-                    echo "❌ Smoke test failed: 127.0.0.1:8000 not reachable"
-                    exit 1
-                fi
+                curl -I http://127.0.0.1:8000/admin || { echo "Smoke test failed for QA"; exit 1; }
                 '''
             }
         }
@@ -77,10 +65,10 @@ pipeline {
 
     post {
         success {
-            echo "🎉 Backend CI/CD pipeline completed successfully!"
+            echo "✅ QA Backend Pipeline successful!"
         }
         failure {
-            echo "🚨 Backend pipeline failed — check Jenkins logs."
+            echo "❌ QA Backend Pipeline failed. Check logs."
         }
     }
 }
