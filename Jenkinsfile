@@ -7,9 +7,10 @@ pipeline {
     }
 
     stages {
+
         stage('Checkout') {
             steps {
-                echo "Cloning repository..."
+                echo "📥 Cloning repository..."
                 checkout scm
             }
         }
@@ -17,11 +18,13 @@ pipeline {
         stage('Setup Virtual Environment & Install Dependencies') {
             steps {
                 sh '''
-                echo "Setting up virtual environment..."
+                echo "⚙️ Setting up virtual environment..."
                 cd "${BACKEND_DIR}"
+
                 if [ ! -d "${VENV_DIR}" ]; then
                     python3 -m venv "${VENV_DIR}"
                 fi
+
                 . "${VENV_DIR}/bin/activate"
                 pip install --upgrade pip
                 pip install -r requirements.txt
@@ -32,7 +35,7 @@ pipeline {
         stage('Migrate & Collectstatic') {
             steps {
                 sh '''
-                echo "Applying database migrations and collecting static files..."
+                echo "🏗️ Applying database migrations and collecting static files..."
                 . "${VENV_DIR}/bin/activate"
                 cd "${BACKEND_DIR}"
                 python3 manage.py migrate --noinput
@@ -41,12 +44,17 @@ pipeline {
             }
         }
 
-        stage('Restart Gunicorn Service') {
+        stage('Restart Gunicorn & Nginx Services') {
             steps {
                 sh '''
-                echo "Restarting Gunicorn service..."
+                echo "🔁 Restarting Gunicorn and Nginx services..."
+                sudo systemctl daemon-reexec
+                sudo systemctl daemon-reload
                 sudo systemctl restart gunicorn
-                sudo systemctl status gunicorn --no-pager
+                sudo systemctl restart nginx
+                sudo systemctl enable gunicorn
+                sudo systemctl enable nginx
+                echo "✅ Gunicorn & Nginx restarted successfully!"
                 '''
             }
         }
@@ -54,9 +62,14 @@ pipeline {
         stage('Smoke Test') {
             steps {
                 sh '''
-                echo "Running smoke test..."
+                echo "🧪 Running smoke test..."
                 sleep 5
-                curl -I http://127.0.0.1:8000/admin || { echo "Smoke test failed: backend not reachable"; exit 1; }
+                if curl -sSf http://127.0.0.1:8000/admin >/dev/null; then
+                    echo "✅ Smoke test passed! Backend is reachable."
+                else
+                    echo "❌ Smoke test failed: 127.0.0.1:8000 not reachable"
+                    exit 1
+                fi
                 '''
             }
         }
@@ -64,10 +77,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ Backend pipeline executed successfully!"
+            echo "🎉 Backend CI/CD pipeline completed successfully!"
         }
         failure {
-            echo "❌ Backend pipeline failed — check logs."
+            echo "🚨 Backend pipeline failed — check Jenkins logs."
         }
     }
 }
