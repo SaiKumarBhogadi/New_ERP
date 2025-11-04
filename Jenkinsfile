@@ -2,48 +2,28 @@ pipeline {
     agent any
 
     environment {
-        PROJECT_DIR = "/var/lib/jenkins/erp_backend_qa"
-        VENV_DIR = "${PROJECT_DIR}/venv"
-        APP_DIR = "${PROJECT_DIR}/erp_project"
-        GUNICORN_SERVICE = "gunicorn"
+        APP_DIR = "/var/lib/jenkins/erp_backend_qa/erp_project"
+        VENV_DIR = "/var/lib/jenkins/erp_backend_qa/venv"
+        ENV_FILE = "/var/lib/jenkins/.env/erp_backend_qa.env"
     }
 
     stages {
 
         stage('📥 Pull Latest Code') {
             steps {
-                echo "Fetching latest code from QA branch..."
-                sh '''#!/bin/bash
-                set -e
-                if [ ! -d "$PROJECT_DIR" ]; then
-                    sudo mkdir -p "$PROJECT_DIR"
-                    sudo chown -R $(whoami):$(whoami) "$PROJECT_DIR"
-                fi
-
-                cd $PROJECT_DIR
-
-                if [ ! -d "$APP_DIR" ]; then
-                    git clone -b qa https://github.com/vasavamshi-vv/New_ERP_Backend.git erp_project
-                else
-                    cd $APP_DIR
-                    git fetch origin qa
-                    git reset --hard origin/qa
-                fi
-                '''
+                echo "Fetching latest QA code..."
+                git branch: 'qa', url: 'https://github.com/vasavamshi-vv/New_ERP_Backend.git'
             }
         }
 
         stage('📦 Setup Virtual Environment & Install Dependencies') {
             steps {
-                echo "Creating virtual environment and installing dependencies..."
-                sh '''#!/bin/bash
+                echo "Setting up virtual environment..."
+                sh '''
                 set -e
-                cd $PROJECT_DIR
-
                 if [ ! -d "$VENV_DIR" ]; then
                     python3 -m venv $VENV_DIR
                 fi
-
                 source $VENV_DIR/bin/activate
                 pip install --upgrade pip
                 pip install -r $APP_DIR/requirements.txt
@@ -55,8 +35,9 @@ pipeline {
         stage('🧹 Apply Migrations & Collect Static Files') {
             steps {
                 echo "Applying migrations and collecting static files..."
-                sh '''#!/bin/bash
+                sh '''
                 set -e
+                export $(grep -v '^#' $ENV_FILE | xargs)
                 cd $APP_DIR
                 source $VENV_DIR/bin/activate
                 python3 manage.py migrate --noinput
@@ -68,42 +49,20 @@ pipeline {
 
         stage('🚀 Restart Gunicorn & Nginx') {
             steps {
-                echo "Restarting Gunicorn and Nginx services..."
-                sh '''#!/bin/bash
-                set -e
-
-                echo "Restarting Gunicorn..."
-                if sudo systemctl is-active --quiet $GUNICORN_SERVICE; then
-                    sudo systemctl restart $GUNICORN_SERVICE
-                else
-                    sudo systemctl start $GUNICORN_SERVICE
-                fi
-
-                echo "Restarting Nginx..."
-                if sudo systemctl is-active --quiet nginx; then
-                    sudo systemctl restart nginx
-                else
-                    sudo systemctl start nginx
-                fi
-
-                sudo systemctl status $GUNICORN_SERVICE --no-pager
-                sudo systemctl status nginx --no-pager
+                echo "Restarting backend services..."
+                sh '''
+                sudo systemctl restart gunicorn
+                sudo systemctl restart nginx
                 '''
             }
         }
 
         stage('🧪 Smoke Test') {
             steps {
-                echo "Running smoke test..."
-                sh '''#!/bin/bash
-                set -e
+                echo "Performing health check..."
+                sh '''
                 sleep 5
-                STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1/admin/)
-                if [ "$STATUS" != "200" ] && [ "$STATUS" != "302" ]; then
-                    echo "❌ Smoke test failed: backend not reachable (status $STATUS)"
-                    exit 1
-                fi
-                echo "✅ Smoke test passed: backend reachable!"
+                curl -f http://127.0.0.1:8000/ || exit 1
                 '''
             }
         }
@@ -111,10 +70,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ QA Backend Deployed Successfully!"
+            echo "✅ ERP Backend QA deployed successfully!"
         }
         failure {
-            echo "❌ Deployment Failed — check Jenkins logs for details."
+            echo "❌ Deployment failed. Check Jenkins logs for errors."
         }
     }
 }
