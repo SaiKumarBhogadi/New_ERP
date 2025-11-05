@@ -101,22 +101,25 @@ WSGI_APPLICATION = 'erp_backend.wsgi.application'
 #         'NAME': BASE_DIR / 'db.sqlite3',
 #     }
 # }
-
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'new_erp',
-        'USER': 'erp_admin',
-        'PASSWORD': 'Test@123',
-        'HOST': 'localhost',
-        'PORT': '3306',
+        'NAME': os.getenv('DB_NAME', 'erpdb'),
+        'USER': os.getenv('DB_USER', 'admin'),
+        'PASSWORD': os.getenv('DB_PASSWORD', 'StacklyVasa'),
+        'HOST': os.getenv('DB_HOST', 'erp-qa-db.cvy4we044sft.ap-south-1.rds.amazonaws.com'),
+        'PORT': os.getenv('DB_PORT', '3306'),
         'OPTIONS': {
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
             'charset': 'utf8mb4',
         },
     }
 }
+
 
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators

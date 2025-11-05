@@ -47,3 +47,4 @@ six==1.17.0
 # 🧪 Utilities & Helpers
 # ============================
 python-dateutil==2.9.0.post0
+python-dotenv
