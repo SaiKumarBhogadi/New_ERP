@@ -172,7 +172,7 @@ class CandidateSerializer(serializers.ModelSerializer):
 class AttendanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Attendance
-        fields = ['id', 'date', 'check_in_times', 'total_hours']
+        fields = ['id', 'date', 'check_in_times', 'total_hours', 'status']
 
 class CheckInOutSerializer(serializers.Serializer):
     date = serializers.DateField()

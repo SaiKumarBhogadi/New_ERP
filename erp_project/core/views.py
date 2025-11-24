@@ -76,6 +76,15 @@ class LoginView(APIView):
                 }, status=status.HTTP_200_OK)
             return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class LogoutView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        request.user.auth_token.delete()   # delete token
+        request.session.flush()            # clear remember-me session
+        return Response({"message": "Logged out successfully"}, status=200)
+
 
 class ForgotPasswordView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -91,7 +100,7 @@ class ForgotPasswordView(APIView):
                 user.reset_token_expiry = timezone.now() + timezone.timedelta(minutes=30)
                 user.save()
 
-                reset_link = f"http://yourdomain.com/reset-password/{reset_token}/"
+                reset_link = f" http://127.0.0.1:8000/reset-password/{reset_token}/"
                 subject = 'Password Reset Request'
                 message = f'Click the link to reset your password: {reset_link}'
                 from_email = settings.EMAIL_HOST_USER
@@ -269,7 +278,7 @@ class CheckInOutView(APIView):
             attendance, created = Attendance.objects.get_or_create(
                 user=user,
                 date=date,
-                defaults={'check_in_times': [], 'total_hours': 0.0}
+                defaults={'check_in_times': [], 'total_hours': 0.0, 'status': 'Present'}
             )
 
             check_in_times = attendance.check_in_times
@@ -294,6 +303,7 @@ class CheckInOutView(APIView):
 
             attendance.check_in_times = check_in_times
             attendance.total_hours = round(total_hours, 2)
+            attendance.status = "Present" if total_hours > 7 else "Absent"
             attendance.save()
 
             serializer = AttendanceSerializer(attendance)
@@ -375,12 +385,22 @@ class TaskSummaryView(APIView):
         }
         return Response(summary, status=status.HTTP_200_OK)
 
-class DashboardTaskView(APIView):
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import permissions, status
+from django.db.models import Count, Q
+from django.db.models.functions import ExtractMonth
+from django.utils import timezone
+
+class DashboardCombinedView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        tasks = Task.objects.filter(assigned_to=request.user).order_by('id')
-        
+        user = request.user
+
+        # -------- TASK DATA --------
+        tasks = Task.objects.filter(assigned_to=user).order_by('id')
+
         task_summary = {
             'not_started': tasks.filter(status='Not Started').count(),
             'in_progress': tasks.filter(status='In Progress').count(),
@@ -393,19 +413,15 @@ class DashboardTaskView(APIView):
             'taskSummary': task_summary,
         }
 
-        serializer = TaskDataSerializer(task_data)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-class DashboardAttendanceView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request):
+        # -------- ATTENDANCE DATA --------
         today = timezone.now()
-        attendance_data = Attendance.objects.filter(user=request.user, date__year=today.year).values('date').annotate(
+
+        attendance_data = Attendance.objects.filter(
+            user=user,
+            date__year=today.year
+        ).values('date').annotate(
             month=ExtractMonth('date')
-        ).values(
-            'month'
-        ).annotate(
+        ).values('month').annotate(
             present=Count('id', filter=Q(total_hours__gt=0)),
             absent=Count('id', filter=Q(total_hours=0))
         ).order_by('month')
@@ -414,20 +430,32 @@ class DashboardAttendanceView(APIView):
             1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun',
             7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'
         }
-        date_data = [
+
+        attendance_list = [
             {
                 'month': month_names.get(row['month'], 'Unknown'),
                 'present': row['present'],
                 'absent': row['absent']
-            } for row in attendance_data
+            }
+            for row in attendance_data
         ]
 
         for month in range(1, 13):
             month_name = month_names[month]
-            if not any(d['month'] == month_name for d in date_data):
-                date_data.append({'month': month_name, 'present': 0, 'absent': 0})
+            if not any(d['month'] == month_name for d in attendance_list):
+                attendance_list.append({
+                    'month': month_name,
+                    'present': 0,
+                    'absent': 0
+                })
 
-        date_data.sort(key=lambda x: list(month_names.values()).index(x['month']))
+        attendance_list.sort(key=lambda x: list(month_names.values()).index(x['month']))
 
-        serializer = DashboardAttendanceSerializer({'dateData': date_data})
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        # -------- RETURN MERGED DATA --------
+        return Response(
+            {
+                "tasks": task_data,
+                "attendance": attendance_list
+            },
+            status=status.HTTP_200_OK
+        )

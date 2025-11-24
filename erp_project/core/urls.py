@@ -6,6 +6,8 @@ from django.conf.urls.static import static
 urlpatterns = [
     path('register/', views.RegisterView.as_view(), name='register'),
     path('login/', views.LoginView.as_view(), name='login'),
+    path('logout/', views.LogoutView.as_view(), name='logout'),
+
     path('profile/', views.ProfileView.as_view(), name='profile'),
     path('onboarding/', views.OnboardingListView.as_view(), name='onboarding-list'),
     path('onboarding/<int:pk>/', views.OnboardingDetailView.as_view(), name='onboarding-detail'),
@@ -15,8 +17,8 @@ urlpatterns = [
     path('tasks/', views.TaskListView.as_view(), name='task-list'),
     path('tasks/<int:pk>/', views.TaskDetailView.as_view(), name='task-detail'),
     path('task-summary/', views.TaskSummaryView.as_view(), name='task-summary'),
-    path('dashboard/tasks/', views.DashboardTaskView.as_view(), name='dashboard-tasks'),
-    path('dashboard/attendance/', views.DashboardAttendanceView.as_view(), name='dashboard-attendance'),
+    path("dashboard/", views.DashboardCombinedView.as_view(), name="dashboard-all"),
+
     path('forgot-password/', views.ForgotPasswordView.as_view(), name='forgot-password'),
     path('reset-password/<str:token>/', views.ResetPasswordView.as_view(), name='reset-password'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
