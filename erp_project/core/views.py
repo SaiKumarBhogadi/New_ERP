@@ -76,6 +76,15 @@ class LoginView(APIView):
                 }, status=status.HTTP_200_OK)
             return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class LogoutView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        request.user.auth_token.delete()   # delete token
+        request.session.flush()            # clear remember-me session
+        return Response({"message": "Logged out successfully"}, status=200)
+
 
 class ForgotPasswordView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -91,7 +100,7 @@ class ForgotPasswordView(APIView):
                 user.reset_token_expiry = timezone.now() + timezone.timedelta(minutes=30)
                 user.save()
 
-                reset_link = f"http://yourdomain.com/reset-password/{reset_token}/"
+                reset_link = f" http://127.0.0.1:8000/reset-password/{reset_token}/"
                 subject = 'Password Reset Request'
                 message = f'Click the link to reset your password: {reset_link}'
                 from_email = settings.EMAIL_HOST_USER

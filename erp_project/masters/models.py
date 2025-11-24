@@ -237,11 +237,13 @@ class Customer(models.Model):
         ('Inactive', 'Inactive')
     ])
     assigned_sales_rep = models.ForeignKey(
-        'core.Candidate',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+    'masters.CustomUser',
+    on_delete=models.SET_NULL,
+    null=True,
+    blank=True,
+    related_name='assigned_customers'
     )
+
     email = models.EmailField(unique=True)
     phone_number = models.CharField(max_length=15)
     address = models.TextField(blank=True)
