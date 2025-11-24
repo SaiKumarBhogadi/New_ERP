@@ -29,6 +29,7 @@ urlpatterns = [
     path('delivery-notes/<int:pk>/items/<int:item_pk>/serial-numbers/', views.DeliveryNoteSerialNumbersView.as_view(), name='delivery-note-serial-numbers'),
     path('delivery-notes/<int:pk>/pdf/', views.DeliveryNotePDFView.as_view(), name='delivery-note-pdf'),
     path('delivery-notes/<int:pk>/email/', views.DeliveryNoteEmailView.as_view(), name='delivery-note-email'),
+   
     # Invoice URLs
     path('invoices/', views.InvoiceListView.as_view(), name='invoice-list'),
     path('invoices/<int:pk>/', views.InvoiceDetailView.as_view(), name='invoice-detail'),
