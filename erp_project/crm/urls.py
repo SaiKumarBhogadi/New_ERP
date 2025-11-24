@@ -2,8 +2,8 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    path('enquiries/', views.EnquiryListView.as_view(), name='enquiry-list'),
-    path('enquiries/<int:pk>/', views.NewEnquiryView.as_view(), name='enquiry-detail'),
+    path("enquiries/", views.EnquiryListView.as_view(), name="enquiry-list"),       # GET, POST, DELETE
+    path("enquiries/<int:pk>/", views.EnquiryDetailView.as_view(), name="enquiry-detail"),  # GET, PUT
 
     path('quotations/', views.QuotationListView.as_view(), name='quotation_list'),
     path('quotations/<int:pk>/', views.QuotationDetailView.as_view(), name='quotation_detail'),

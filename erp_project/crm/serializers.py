@@ -23,6 +23,14 @@ class EnquirySerializer(serializers.ModelSerializer):
 
     def get_grand_total(self, obj):
         return sum(item.total_amount for item in obj.items.all()) if obj.items.exists() else 0
+    
+    def validate_phone_number(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("Phone number must contain only digits.")
+        if len(value) < 10 or len(value) > 15:
+            raise serializers.ValidationError("Phone number must be between 10 and 15 digits.")
+        return value
+
 
 class EnquiryCreateSerializer(serializers.ModelSerializer):
     items = EnquiryItemSerializer(many=True, required=False)
@@ -50,6 +58,13 @@ class EnquiryCreateSerializer(serializers.ModelSerializer):
         else:
             last_id = 1
         return f'ENQ{last_id:03d}'  # e.g., ENQ001, ENQ002
+    def validate_phone_number(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("Phone number must contain only digits.")
+        if len(value) < 10 or len(value) > 15:
+            raise serializers.ValidationError("Phone number must be between 10 and 15 digits.")
+        return value
+
     
 
 from rest_framework import serializers
@@ -105,7 +120,7 @@ class QuotationSerializer(serializers.ModelSerializer):
     history = QuotationHistorySerializer(many=True, read_only=True)
     revisions = QuotationRevisionSerializer(many=True, read_only=True)
     customer_name = serializers.PrimaryKeyRelatedField(queryset=Customer.objects.all())
-    sales_rep = serializers.PrimaryKeyRelatedField(queryset=Role.objects.filter(role='Sales Representative'), allow_null=True)
+    sales_rep = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(role__role='Sales Representative'),allow_null=True)
     grand_total = serializers.SerializerMethodField()
 
     class Meta:
@@ -129,8 +144,7 @@ class QuotationCreateSerializer(serializers.ModelSerializer):
     history = QuotationHistorySerializer(many=True, required=False)
     revisions = QuotationRevisionSerializer(many=True, required=False)
     customer_name = serializers.PrimaryKeyRelatedField(queryset=Customer.objects.all())
-    sales_rep = serializers.PrimaryKeyRelatedField(queryset=Role.objects.filter(role='Sales Representative'), allow_null=True)
-
+    sales_rep = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(role__role='Sales Representative'),allow_null=True)
     class Meta:
         model = Quotation
         fields = [
