@@ -258,11 +258,16 @@ from django.http import HttpResponse
 from django.template.loader import render_to_string
 import pdfkit
 import os
-from .models import Quotation, InvoiceReturn, DeliveryNoteReturn
+from .models import Quotation
 
-# Dynamic wkhtmltopdf path for Windows and Linux
-WKHTMLTOPDF_PATH = r'C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe' if os.name == 'nt' else '/usr/bin/wkhtmltopdf'
+# Dynamic path for wkhtmltopdf
+WKHTMLTOPDF_PATH = (
+    r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+    if os.name == "nt"
+    else "/usr/bin/wkhtmltopdf"
+)
 config = pdfkit.configuration(wkhtmltopdf=WKHTMLTOPDF_PATH)
+
 
 class QuotationPDFView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -271,44 +276,58 @@ class QuotationPDFView(APIView):
         try:
             quotation = Quotation.objects.get(id=pk, user=request.user)
             items = quotation.items.all()
+
             subtotal = sum(item.total for item in items)
             global_discount_amount = subtotal * (quotation.globalDiscount / 100)
             grand_total = subtotal - global_discount_amount + quotation.shippingCharges
 
             context = {
-                'quotation': quotation,
-                'items': items,
-                'subtotal': subtotal,
-                'global_discount_amount': global_discount_amount,
-                'grand_total': grand_total,
+                "quotation": quotation,
+                "items": items,
+                "subtotal": subtotal,
+                "global_discount_amount": global_discount_amount,
+                "grand_total": grand_total,
+                "comments": quotation.comments.all(),
+                "attachments": quotation.attachments.all(),
+                "revisions": quotation.revisions.all(),
+                "history": quotation.history.all(),
             }
 
-            html_string = render_to_string('quotation_pdf.html', context)
-            pdf = pdfkit.from_string(
-                html_string,
-                False,
-                configuration=config,
-                options={
-                    'page-size': 'A4',
-                    'margin-top': '0.75in',
-                    'margin-right': '0.75in',
-                    'margin-bottom': '0.75in',
-                    'margin-left': '0.75in',
-                    'encoding': "UTF-8",
-                    'no-outline': None
-                }
-            )
+            html = render_to_string("quotation_pdf.html", context)
 
-            response = HttpResponse(content_type='application/pdf')
-            response['Content-Disposition'] = f'attachment; filename="quotation_{quotation.quotation_id}.pdf"'
-            response.write(pdf)
+            options = {
+                "page-size": "A4",
+                "margin-top": "10mm",
+                "margin-right": "10mm",
+                "margin-bottom": "10mm",
+                "margin-left": "10mm",
+                "encoding": "UTF-8",
+                "dpi": 300,
+                "zoom": 1,
+                "enable-local-file-access": None,
+                # wkhtmltopdf sometimes needs this to respect @page rules
+                "no-stop-slow-scripts": None,
+                "disable-smart-shrinking": None,
+            }
+            pdf = pdfkit.from_string(html, False, configuration=config, options=options)
+
+            response = HttpResponse(pdf, content_type="application/pdf")
+            response["Content-Disposition"] = (
+                f'attachment; filename="quotation_{quotation.quotation_id}.pdf"'
+            )
             return response
 
         except ObjectDoesNotExist:
-            return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Quotation not found"}, status=status.HTTP_404_NOT_FOUND
+            )
         except Exception as e:
-            return Response({'error': f'PDF generation failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+            return Response(
+                {"error": f"PDF generation failed: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
 class QuotationEmailView(APIView):
       permission_classes = [permissions.IsAuthenticated]
 

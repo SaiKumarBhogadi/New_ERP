@@ -1,238 +1,287 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <style>
-        body {
-            font-family: 'DejaVu Sans', Arial, Helvetica, sans-serif;
-            font-size: 12px;
-            margin: 40px;
-            color: #333;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 20px;
-            background-color: #fff;
-        }
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 2px solid #1a73e8;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
-        }
-        .header img {
-            max-height: 60px;
-        }
-        .company-info h2 {
-            margin: 0;
-            font-size: 18px;
-            color: #1a73e8;
-        }
-        .company-info p {
-            margin: 2px 0;
-            font-size: 10px;
-            color: #555;
-        }
-        h1 {
-            font-size: 24px;
-            color: #1a73e8;
-            text-align: center;
-            margin: 20px 0;
-        }
-        .field {
-            margin-bottom: 8px;
-            font-size: 12px;
-        }
-        .field label {
-            font-weight: bold;
-            display: inline-block;
-            width: 160px;
-            color: #444;
-        }
-        .section {
-            margin: 20px 0;
-        }
-        .section h2 {
-            font-size: 16px;
-            color: #1a73e8;
-            border-bottom: 1px solid #ddd;
-            padding-bottom: 5px;
-            margin-bottom: 10px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 10px;
-            text-align: left;
-            font-size: 11px;
-        }
-        th {
-            background-color: #1a73e8;
-            color: #fff;
-            font-weight: bold;
-        }
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        .summary {
-            margin-top: 20px;
-        }
-        .summary table {
-            width: 50%;
-            float: right;
-            border: none;
-            box-shadow: none;
-        }
-        .summary th, .summary td {
-            border: none;
-            padding: 5px;
-        }
-        .summary th {
-            background: none;
-            color: #333;
-            font-weight: bold;
-            text-align: left;
-        }
-        .summary td.text-right {
-            text-align: right;
-        }
-        .summary .total {
-            border-top: 2px solid #1a73e8;
-            font-weight: bold;
-        }
-        .footer {
-            margin-top: 30px;
-            text-align: center;
-            font-size: 10px;
-            color: #777;
-            border-top: 1px solid #ddd;
-            padding-top: 10px;
-        }
-        .terms {
-            margin-top: 20px;
-            font-size: 10px;
-            color: #555;
-        }
-        .clear {
-            clear: both;
-        }
-        @page {
-            @bottom-center {
-                content: "Page " counter(page) " of " counter(pages);
-                font-size: 10px;
-                color: #777;
-            }
-        }
-    </style>
+<meta charset="UTF-8">
+<title>Quotation {{ quotation.quotation_id }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: 12mm 10mm;
+    @top-center   { content: "Quotation {{ quotation.quotation_id }}"; font-size:9pt; }
+    @bottom-center{ content: "Page " counter(page) " of " counter(pages); font-size:9pt; }
+  }
+
+  body{
+    font-family:"Helvetica Neue",Arial,Helvetica,sans-serif;
+    font-size:12px;
+    color:#222;
+    line-height:1.45;
+    margin:0;
+  }
+
+  .container{
+    width:100%;
+    padding:0 5px;
+    box-sizing:border-box;
+  }
+
+  /* ---------- HEADER ---------- */
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    border-bottom:3px solid #003087;      /* dark‑blue */
+    padding-bottom:8px;
+    margin-bottom:12px;
+    page-break-after:avoid;
+  }
+  .company h2{
+    margin:0;
+    font-size:19px;
+    color:#003087;
+  }
+  .company p{margin:1px 0; font-size:10.5px;}
+  .header-right{font-size:10.5px; text-align:right;}
+
+  /* ---------- TITLE ---------- */
+  .title{
+    text-align:center;
+    font-size:21px;
+    font-weight:bold;
+    color:#003087;
+    margin:8px 0 14px;
+    text-transform:uppercase;
+    page-break-after:avoid;
+  }
+
+  /* ---------- DETAILS ---------- */
+  .details{
+    width:100%;
+    border-collapse:collapse;
+    margin-bottom:12px;
+    page-break-inside:avoid;
+  }
+  .details td{
+    padding:4px 8px;
+    vertical-align:top;
+    font-size:11px;
+  }
+  .details .label{
+    font-weight:bold;
+    color:#444;
+    width:25%;
+  }
+
+  /* ---------- ITEMS TABLE ---------- */
+  table.items{
+    width:100%;
+    border-collapse:collapse;
+    margin-bottom:12px;
+    page-break-inside:avoid;
+  }
+  table.items th,
+  table.items td{
+    border:1px solid #bbb;
+    padding:5px 6px;
+    font-size:11px;
+    box-sizing:border-box;
+  }
+  table.items th{
+    background:#003087;                 /* dark‑blue header */
+    color:#fff;
+    font-weight:normal;
+  }
+  table.items td{
+    white-space:normal;
+    word-wrap:break-word;
+  }
+  table.items td:nth-child(1){min-width:130px;}   /* product column */
+
+  /* ---------- TOTALS ---------- */
+  .totals-wrapper{
+    float:right;
+    width:44%;
+    page-break-inside:avoid;
+  }
+  table.totals{
+    width:100%;
+    border-collapse:collapse;
+    background:#f5f7fa;
+    margin-top:6px;
+  }
+  table.totals td{
+    padding:4px 8px;
+    font-size:11px;
+    border:none;
+  }
+  .totals .label{
+    text-align:right;
+    font-weight:bold;
+    color:#222;
+  }
+  .totals .value{
+    text-align:right;
+  }
+  .grand-total td{
+    background:#003087;
+    color:#fff;
+    font-weight:bold;
+  }
+
+  /* ---------- SECTION TITLES ---------- */
+  .section-title{
+    color:#003087;
+    font-weight:bold;
+    font-size:13px;
+    margin:18px 0 5px;
+    border-bottom:1px solid #003087;
+    padding-bottom:3px;
+    page-break-after:avoid;
+  }
+
+  /* ---------- TERMS / COMMENTS ---------- */
+  .terms,.comments{
+    font-size:11px;
+    margin-top:12px;
+    page-break-inside:avoid;
+  }
+  .terms ol,.comments ul{
+    padding-left:18px;
+    margin:4px 0;
+  }
+
+  /* ---------- FOOTER ---------- */
+  footer{
+    margin-top:30px;
+    padding-top:8px;
+    border-top:1px solid #ccc;
+    font-size:9px;
+    color:#666;
+    text-align:center;
+    page-break-before:avoid;
+  }
+
+  .clearfix::after{content:"";display:table;clear:both;}
+</style>
 </head>
+
 <body>
-    <div class="container">
-        <div class="header">
-            <img src="" alt="Company Logo" onerror="this.style.display='none'">
-            <div class="company-info">
-                <h2>Stackly ERP</h2>
-                <p>123 Business Avenue, Mumbai, India</p>
-                <p>Email: contact@stacklyerp.com | Phone: +91 123 456 7890</p>
-                <p>GSTIN: 27ABCDE1234F1Z5</p>
-            </div>
-        </div>
+<div class="container">
 
-        <h1>Quotation</h1>
-
-        <div class="section">
-            <h2>Quotation Details</h2>
-            <div class="field"><label>Quotation ID:</label> {{ quotation.quotation_id }}</div>
-            <div class="field"><label>Customer ID:</label> {{ quotation.customer_name.customer_id|default:"N/A" }}</div>
-            <div class="field"><label>Customer:</label> {{ quotation.customer_name.first_name }}</div>
-            <div class="field"><label>Customer PO Reference:</label> {{ quotation.customer_po_referance|default:"N/A" }}</div>
-            <div class="field"><label>Quotation Date:</label> {{ quotation.quotation_date }}</div>
-            <div class="field"><label>Expiry Date:</label> {{ quotation.expiry_date }}</div>
-            <div class="field"><label>Sales Representative:</label> {{ quotation.sales_rep.role|default:"N/A" }}</div>
-            <div class="field"><label>Quotation Type:</label> {{ quotation.quotation_type }}</div>
-            <div class="field"><label>Currency:</label> {{ quotation.currency }}</div>
-            <div class="field"><label>Payment Terms:</label> {{ quotation.payment_terms|default:"N/A" }}</div>
-            <div class="field"><label>Expected Delivery:</label> {{ quotation.expected_delivery }}</div>
-            <div class="field"><label>Status:</label> {{ quotation.status }}</div>
-            <div class="field"><label>Revision Count:</label> {{ quotation.revise_count }}</div>
-        </div>
-
-        <div class="section">
-            <h2>Line Items</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th>Description</th>
-                        <th>UOM</th>
-                        <th>Qty</th>
-                        <th>Unit Price</th>
-                        <th>Tax (%)</th>
-                        <th>Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in items %}
-                    <tr>
-                        <td>{{ item.product_id.name }}</td>
-                        <td>{{ item.product_name }}</td>
-                        <td>{{ item.uom.name }}</td>
-                        <td>{{ item.quantity }}</td>
-                        <td>{{ item.unit_price|floatformat:2 }}</td>
-                        <td>{{ item.tax|floatformat:2 }}</td>
-                        <td>{{ item.total|floatformat:2 }}</td>
-                    </tr>
-                    {% empty %}
-                    <tr><td colspan="7">No items found</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="summary">
-            <h2>Summary</h2>
-            <table>
-                <tr>
-                    <th>Subtotal:</th>
-                    <td class="text-right">{{ quotation.currency }} {{ subtotal|floatformat:2 }}</td>
-                </tr>
-                <tr>
-                    <th>Global Discount ({{ quotation.globalDiscount }}%):</th>
-                    <td class="text-right">- {{ quotation.currency }} {{ global_discount_amount|floatformat:2 }}</td>
-                </tr>
-                <tr>
-                    <th>Shipping Charges:</th>
-                    <td class="text-right">{{ quotation.currency }} {{ quotation.shippingCharges|floatformat:2 }}</td>
-                </tr>
-                <tr class="total">
-                    <th>Grand Total:</th>
-                    <td class="text-right">{{ quotation.currency }} {{ grand_total|floatformat:2 }}</td>
-                </tr>
-            </table>
-            <div class="clear"></div>
-        </div>
-
-        <div class="terms">
-            <h2>Terms & Conditions</h2>
-            <p>1. Payment is due as per the agreed terms ({{ quotation.payment_terms|default:"N/A" }}).</p>
-            <p>2. Prices are subject to change after the expiry date ({{ quotation.expiry_date }}).</p>
-            <p>3. All goods remain the property of Stackly ERP until fully paid.</p>
-            <p>4. Contact us at contact@stacklyerp.com for any queries.</p>
-        </div>
-
-        <div class="footer">
-            Generated on: {{ quotation.created_at|date:"Y-m-d H:i" }}<br>
-            Stackly ERP - All Rights Reserved
-        </div>
+  <!-- HEADER -->
+  <header>
+    <div class="company">
+      <h2>Stackly ERP</h2>
+      <p>123 Business Avenue, Mumbai, India</p>
+      <p>Email: contact@stacklyerp.com | Phone: +91 123 456 7890</p>
+      <p>GSTIN: 27ABCDE1234F2Z5</p>
     </div>
+    <div class="header-right">
+      <strong>Date:</strong> {{ quotation.quotation_date|date:"M d, Y" }}<br>
+      <strong>Quotation ID:</strong> {{ quotation.quotation_id }}<br>
+      <strong>Status:</strong> {{ quotation.status }}
+    </div>
+  </header>
+
+  <div class="title">Quotation</div>
+
+  <!-- DETAILS -->
+  <table class="details">
+    <tr>
+      <td class="label">Customer Name:</td><td>{{ quotation.customer_name }}</td>
+      <td class="label">Customer PO Ref:</td><td>{{ quotation.customer_po_referance|default:"—" }}</td>
+    </tr>
+    <tr>
+      <td class="label">Sales Representative:</td><td>{{ quotation.sales_rep|default:"—" }}</td>
+      <td class="label">Quotation Type:</td><td>{{ quotation.quotation_type|default:"—" }}</td>
+    </tr>
+    <tr>
+      <td class="label">Currency:</td><td>{{ quotation.currency|default:"INR" }}</td>
+      <td class="label">Payment Terms:</td><td>{{ quotation.payment_terms|default:"—" }}</td>
+    </tr>
+    <tr>
+      <td class="label">Expected Delivery:</td><td>{{ quotation.expected_delivery|date:"M d, Y"|default:"—" }}</td>
+      <td class="label">Expiry Date:</td><td>{{ quotation.expiry_date|date:"M d, Y"|default:"—" }}</td>
+    </tr>
+    <tr>
+      <td class="label">Revision Count:</td><td>{{ quotation.revise_count }}</td>
+      <td></td><td></td>
+    </tr>
+  </table>
+
+  <!-- ITEMS -->
+  <table class="items">
+    <thead>
+      <tr>
+        <th>Product</th>
+        <th>UOM</th>
+        <th>Qty</th>
+        <th>Unit Price</th>
+        <th>Discount (%)</th>
+        <th>Tax (%)</th>
+        <th>Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.product_name }}</td>
+        <td>{{ item.uom.name }}</td>
+        <td>{{ item.quantity }}</td>
+        <td>{{ item.unit_price|floatformat:2 }}</td>
+        <td>{{ item.discount|floatformat:2 }}</td>
+        <td>{{ item.tax|floatformat:2 }}</td>
+        <td>{{ item.total|floatformat:2 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" style="text-align:center;color:#999;">No items</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- TOTALS -->
+  <div class="clearfix"></div>
+  <div class="totals-wrapper">
+    <table class="totals">
+      <tr><td class="label">Subtotal:</td><td class="value">{{ subtotal|floatformat:2 }}</td></tr>
+      <tr><td class="label">Global Discount ({{ quotation.globalDiscount }}%):</td>
+          <td class="value">-{{ global_discount_amount|floatformat:2 }}</td></tr>
+      <tr><td class="label">Shipping Charges:</td><td class="value">{{ quotation.shippingCharges|floatformat:2 }}</td></tr>
+      <tr class="grand-total"><td class="label">Grand Total:</td><td class="value">{{ grand_total|floatformat:2 }}</td></tr>
+    </table>
+  </div>
+  <div class="clearfix"></div>
+
+  <!-- TERMS -->
+  <div class="terms">
+    <h4 class="section-title">Terms &amp; Conditions</h4>
+    <ol>
+      <li>Payment is due as per the agreed terms ({{ quotation.payment_terms|default:"—" }}).</li>
+      <li>Prices are subject to change after the expiry date ({{ quotation.expiry_date|date:"M d, Y"|default:"—" }}).</li>
+      <li>All goods remain property of Stackly ERP until fully paid.</li>
+      <li>For any queries, contact: contact@stacklyerp.com</li>
+    </ol>
+  </div>
+
+  <!-- COMMENTS -->
+  {% if comments %}
+  <div class="comments">
+    <h4 class="section-title">Comments</h4>
+    <ul>
+      {% for c in comments %}
+      <li><strong>{{ c.person_name }}:</strong> {{ c.comment }} <em>({{ c.timestamp|date:"M d, Y H:i" }})</em></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <!-- FOOTER -->
+  <footer>
+    Generated on {{ quotation.created_at|date:"M d, Y H:i" }} |
+    Revision: {{ quotation.revise_count }} |
+    © {{ now|date:"Y" }} Stackly ERP — All Rights Reserved
+  </footer>
+
+</div>
 </body>
 </html>

@@ -106,16 +106,23 @@ class GovernmentHoliday(models.Model):
         return f"{self.date} - {self.description}"
 
 class Attendance(models.Model):
+    STATUS_CHOICES = [
+        ('Present', 'Present'),
+        ('Absent', 'Absent'),
+        ('Weekend', 'Weekend'),
+        ('Holiday', 'Holiday'),
+    ]
     user = models.ForeignKey('masters.CustomUser', on_delete=models.CASCADE)
     date = models.DateField()
     check_in_times = JSONField(default=list)  # Array of check-in/check-out timestamps
     total_hours = models.DecimalField(max_digits=5, decimal_places=2, default=0.0)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Absent')
 
     class Meta:
         unique_together = ('user', 'date')
 
     def __str__(self):
-        return f"{self.user.username} - {self.date} - {self.total_hours} hrs"
+        return f"{self.user.username} - {self.date} - {self.status} ({self.total_hours} hrs)"
 
 class Task(models.Model):
     name = models.CharField(max_length=100)
