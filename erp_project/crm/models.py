@@ -1,13 +1,14 @@
 from django.db import models
 from django.conf import settings
 
+
 class Enquiry(models.Model):
     enquiry_id = models.CharField(max_length=10, unique=True)  # e.g., ENQ001
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100, blank=True)
     email = models.EmailField()
-    phone_number = models.IntegerField()
+    phone_number = models.CharField(max_length=15)
     street_address = models.CharField(max_length=200, blank=True)
     apartment = models.CharField(max_length=100, blank=True)
     city = models.CharField(max_length=100)
@@ -41,6 +42,7 @@ class Enquiry(models.Model):
     ])
     created_at = models.DateTimeField(auto_now_add=True)
 
+
     def __str__(self):
         return f"{self.enquiry_id} - {self.first_name} {self.last_name}"
 
@@ -70,7 +72,7 @@ class Quotation(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     customer_name = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='quotations')
     customer_po_referance = models.CharField(max_length=100, blank=True, null=True)
-    sales_rep = models.ForeignKey(Role, on_delete=models.SET_NULL, null=True, blank=True, limit_choices_to={'role': 'Sales Representative'}, related_name='quotations')
+    sales_rep = models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='sales_rep_quotations',limit_choices_to={'role__role': 'Sales Representative'})
     quotation_type = models.CharField(max_length=50, choices=[('Standard', 'Standard'), ('Blanket', 'Blanket'), ('Service', 'Service')])
     quotation_date = models.DateField()
     expiry_date = models.DateField()
