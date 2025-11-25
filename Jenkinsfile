@@ -48,6 +48,16 @@ pipeline {
                 script {
                     echo "🚀 Deploying backend container..."
 
+                    // --- FIX START: Reset Database ---
+                    // We delete the old DB to fix 'InconsistentMigrationHistory' error.
+                    // We 'touch' a new one so Docker mounts it as a file, not a directory.
+                    sh """
+                        echo "🧹 Cleaning up old database to fix migration conflicts..."
+                        rm -f "${WORKSPACE}/erp-backend/erp_project/db.sqlite3"
+                        touch "${WORKSPACE}/erp-backend/erp_project/db.sqlite3"
+                    """
+                    // --- FIX END ---
+
                     sh """
                         docker rm -f ${BACKEND_CONTAINER} || true
 
@@ -98,7 +108,9 @@ pipeline {
             steps {
                 sh """
                     echo "🧪 Running smoke tests..."
-                    sleep 5
+                    
+                    # Increased wait time to 20s to let Migrations finish running!
+                    sleep 20 
 
                     # Backend test
                     curl -sSf http://localhost:8000/api/login/ > /dev/null \
