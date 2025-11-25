@@ -48,15 +48,12 @@ pipeline {
                 script {
                     echo "🚀 Deploying backend container..."
 
-                    // --- FIX START: Reset Database ---
-                    // We delete the old DB to fix 'InconsistentMigrationHistory' error.
-                    // We 'touch' a new one so Docker mounts it as a file, not a directory.
+                    // --- FIX: Reset Database ---
                     sh """
                         echo "🧹 Cleaning up old database to fix migration conflicts..."
                         rm -f "${WORKSPACE}/erp-backend/erp_project/db.sqlite3"
                         touch "${WORKSPACE}/erp-backend/erp_project/db.sqlite3"
                     """
-                    // --- FIX END ---
 
                     sh """
                         docker rm -f ${BACKEND_CONTAINER} || true
@@ -109,13 +106,13 @@ pipeline {
                 sh """
                     echo "🧪 Running smoke tests..."
                     
-                    # Increased wait time to 20s to let Migrations finish running!
-                    sleep 20 
+                    sleep 20
 
-                    # Backend test
-                    curl -sSf http://localhost:8000/api/login/ > /dev/null \
+                    # Backend test - UPDATED: Pointing to /admin/ because it accepts GET requests
+                    # Using -L to follow redirects (Django often redirects /admin -> /admin/login/)
+                    curl -sSfL http://localhost:8000/admin/ > /dev/null \
                         && echo "✔ Backend OK" \
-                        || (echo "❌ Backend Down" && exit 1)
+                        || (echo "❌ Backend Down (Check logs)" && exit 1)
 
                     # Frontend test
                     curl -sSf http://localhost:3000 > /dev/null \
