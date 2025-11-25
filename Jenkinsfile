@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         BACKEND_REPO = "https://github.com/vasavamshi-vv/New_ERP_Backend.git"
-        FRONTEND_REPO = "https://github.com/vasavamshi-vv/ERP_Frontend.git"
+        FRONTEND_REPO = "https://github.com/vasavamshi-vv/ERP-Frontend.git"
 
         BACKEND_DIR = "${WORKSPACE}/erp-backend"
         FRONTEND_DIR = "${WORKSPACE}/erp-frontend"
