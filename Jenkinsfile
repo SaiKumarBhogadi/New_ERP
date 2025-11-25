@@ -55,7 +55,7 @@ pipeline {
                         --name ${BACKEND_CONTAINER} \
                         --restart unless-stopped \
                         -p 8000:8000 \
-                        --env-file ${BACKEND_DIR}/erp_project/.env \
+                       --env-file /var/lib/jenkins/.../erp_project/.env.dev
                         -v ${BACKEND_DIR}/erp_project/media:/app/media \
                         -v ${BACKEND_DIR}/erp_project/db.sqlite3:/app/db.sqlite3 \
                         ${BACKEND_IMAGE}
