@@ -20,12 +20,12 @@ pipeline {
         stage('Checkout Both Repos') {
             steps {
                 echo "📥 Cloning backend & frontend..."
-                
-                dir(BACKEND_DIR) {
+
+                dir("${BACKEND_DIR}") {
                     git branch: 'dev', url: "${BACKEND_REPO}"
                 }
 
-                dir(FRONTEND_DIR) {
+                dir("${FRONTEND_DIR}") {
                     git branch: 'dev', url: "${FRONTEND_REPO}"
                 }
             }
@@ -36,41 +36,41 @@ pipeline {
                 script {
                     echo "🐳 Building backend Docker image..."
                     sh """
-                    cd ${BACKEND_DIR}
-                    docker build -t ${BACKEND_IMAGE} .
+                        cd ${BACKEND_DIR}
+                        docker build -t ${BACKEND_IMAGE} .
                     """
                 }
             }
         }
 
-        // --- Backend deploy (replace existing deploy command) ---
-       stage('Deploy Backend Container') {
-         steps {
-             script {
-                 echo "🚀 Deploying backend container..."
-                 sh '''
-                 docker rm -f erp-backend-dev || true
- 
-                 docker run -d \
-                 --name erp-backend-dev \
-                 --restart unless-stopped \
-                 -p 8000:8000 \
-                 --env-file "${WORKSPACE}/erp-backend/erp_project/.env.dev" \
-                 -v "${WORKSPACE}/erp-backend/erp_project/media:/app/media" \
-                 -v "${WORKSPACE}/erp-backend/erp_project/db.sqlite3:/app/db.sqlite3" \
-                 erp-backend:dev
-                 '''
-              }
-          }
-      }
+        stage('Deploy Backend Container') {
+            steps {
+                script {
+                    echo "🚀 Deploying backend container..."
+
+                    sh """
+                        docker rm -f ${BACKEND_CONTAINER} || true
+
+                        docker run -d \
+                            --name ${BACKEND_CONTAINER} \
+                            --restart unless-stopped \
+                            -p 8000:8000 \
+                            --env-file "${WORKSPACE}/erp-backend/erp_project/.env.dev" \
+                            -v "${WORKSPACE}/erp-backend/erp_project/media:/app/media" \
+                            -v "${WORKSPACE}/erp-backend/erp_project/db.sqlite3:/app/db.sqlite3" \
+                            ${BACKEND_IMAGE}
+                    """
+                }
+            }
+        }
 
         stage('Build Frontend Docker Image') {
             steps {
                 script {
                     echo "🌐 Building frontend Docker image..."
                     sh """
-                    cd ${FRONTEND_DIR}
-                    docker build -t ${FRONTEND_IMAGE} .
+                        cd ${FRONTEND_DIR}
+                        docker build -t ${FRONTEND_IMAGE} .
                     """
                 }
             }
@@ -82,13 +82,13 @@ pipeline {
                     echo "🚀 Deploying frontend container..."
 
                     sh """
-                    docker rm -f ${FRONTEND_CONTAINER} || true
+                        docker rm -f ${FRONTEND_CONTAINER} || true
 
-                    docker run -d \
-                        --name ${FRONTEND_CONTAINER} \
-                        --restart unless-stopped \
-                        -p 3000:3000 \
-                        ${FRONTEND_IMAGE}
+                        docker run -d \
+                            --name ${FRONTEND_CONTAINER} \
+                            --restart unless-stopped \
+                            -p 3000:80 \
+                            ${FRONTEND_IMAGE}
                     """
                 }
             }
@@ -97,16 +97,18 @@ pipeline {
         stage('Smoke Tests') {
             steps {
                 sh """
-                echo "🧪 Running smoke tests..."
-                sleep 5
+                    echo "🧪 Running smoke tests..."
+                    sleep 5
 
-                curl -sSf http://localhost:8000/api/login/ > /dev/null \
-                    && echo "✔ Backend OK" \
-                    || (echo "❌ Backend Down" && exit 1)
+                    # Backend test
+                    curl -sSf http://localhost:8000/api/login/ > /dev/null \
+                        && echo "✔ Backend OK" \
+                        || (echo "❌ Backend Down" && exit 1)
 
-                curl -sSf http://localhost:3000 > /dev/null \
-                    && echo "✔ Frontend OK" \
-                    || (echo "❌ Frontend Down" && exit 1)
+                    # Frontend test
+                    curl -sSf http://localhost:3000 > /dev/null \
+                        && echo "✔ Frontend OK" \
+                        || (echo "❌ Frontend Down" && exit 1)
                 """
             }
         }
