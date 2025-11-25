@@ -43,26 +43,26 @@ pipeline {
             }
         }
 
-        stage('Deploy Backend Container') {
-            steps {
-                script {
-                    echo "🚀 Deploying backend container..."
-
-                    sh """
-                    docker rm -f ${BACKEND_CONTAINER} || true
-
-                    docker run -d \
-                        --name ${BACKEND_CONTAINER} \
-                        --restart unless-stopped \
-                        -p 8000:8000 \
-                       --env-file /var/lib/jenkins/.../erp_project/.env.dev
-                        -v ${BACKEND_DIR}/erp_project/media:/app/media \
-                        -v ${BACKEND_DIR}/erp_project/db.sqlite3:/app/db.sqlite3 \
-                        ${BACKEND_IMAGE}
-                    """
-                }
-            }
-        }
+        // --- Backend deploy (replace existing deploy command) ---
+       stage('Deploy Backend Container') {
+         steps {
+             script {
+                 echo "🚀 Deploying backend container..."
+                 sh '''
+                 docker rm -f erp-backend-dev || true
+ 
+                 docker run -d \
+                 --name erp-backend-dev \
+                 --restart unless-stopped \
+                 -p 8000:8000 \
+                 --env-file "${WORKSPACE}/erp-backend/erp_project/.env.dev" \
+                 -v "${WORKSPACE}/erp-backend/erp_project/media:/app/media" \
+                 -v "${WORKSPACE}/erp-backend/erp_project/db.sqlite3:/app/db.sqlite3" \
+                 erp-backend:dev
+                 '''
+              }
+          }
+      }
 
         stage('Build Frontend Docker Image') {
             steps {
