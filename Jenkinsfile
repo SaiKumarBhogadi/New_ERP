@@ -62,6 +62,7 @@ pipeline {
                             --name ${BACKEND_CONTAINER} \
                             --restart unless-stopped \
                             -p 8000:8000 \
+                            -e DB_ENGINE=sqlite3 \
                             --env-file "${WORKSPACE}/erp-backend/erp_project/.env.dev" \
                             -v "${WORKSPACE}/erp-backend/erp_project/media:/app/media" \
                             -v "${WORKSPACE}/erp-backend/erp_project/db.sqlite3:/app/db.sqlite3" \
