@@ -2,21 +2,22 @@ pipeline {
     agent any
 
     environment {
-        BACKEND_REPO = "https://github.com/vasavamshi-vv/New_ERP_Backend.git"
-        FRONTEND_REPO = "https://github.com/vasavamshi-vv/ERP-Frontend.git"
+        BACKEND_REPO   = "https://github.com/vasavamshi-vv/New_ERP_Backend.git"
+        FRONTEND_REPO  = "https://github.com/vasavamshi-vv/ERP-Frontend.git"
 
-        BACKEND_DIR = "${WORKSPACE}/erp-backend"
-        FRONTEND_DIR = "${WORKSPACE}/erp-frontend"
+        BACKEND_DIR    = "${WORKSPACE}/erp-backend"
+        FRONTEND_DIR   = "${WORKSPACE}/erp-frontend"
 
-        BACKEND_IMAGE = "erp-backend:dev"
+        BACKEND_IMAGE  = "erp-backend:dev"
         FRONTEND_IMAGE = "erp-frontend:dev"
 
-        BACKEND_CONTAINER = "erp-backend-dev"
+        BACKEND_CONTAINER  = "erp-backend-dev"
         FRONTEND_CONTAINER = "erp-frontend-dev"
     }
 
     stages {
 
+        /* -------------------- CHECKOUT -------------------- */
         stage('Checkout Both Repos') {
             steps {
                 echo "📥 Cloning backend & frontend..."
@@ -31,6 +32,7 @@ pipeline {
             }
         }
 
+        /* -------------------- BUILD BACKEND -------------------- */
         stage('Build Backend Docker Image') {
             steps {
                 script {
@@ -43,35 +45,28 @@ pipeline {
             }
         }
 
+        /* -------------------- DEPLOY BACKEND -------------------- */
         stage('Deploy Backend Container') {
             steps {
                 script {
                     echo "🚀 Deploying backend container..."
 
-                    // --- FIX: Reset Database ---
-                    sh """
-                        echo "🧹 Cleaning up old database to fix migration conflicts..."
-                        rm -f "${WORKSPACE}/erp-backend/erp_project/db.sqlite3"
-                        touch "${WORKSPACE}/erp-backend/erp_project/db.sqlite3"
-                    """
+                    sh "docker rm -f ${BACKEND_CONTAINER} || true"
 
                     sh """
-                        docker rm -f ${BACKEND_CONTAINER} || true
-
                         docker run -d \
                             --name ${BACKEND_CONTAINER} \
                             --restart unless-stopped \
                             -p 8000:8000 \
-                            -e DB_ENGINE=sqlite3 \
-                            --env-file "${WORKSPACE}/erp-backend/erp_project/.env.dev" \
-                            -v "${WORKSPACE}/erp-backend/erp_project/media:/app/media" \
-                            -v "${WORKSPACE}/erp-backend/erp_project/db.sqlite3:/app/db.sqlite3" \
+                            --env-file ${BACKEND_DIR}/erp_project/.env.dev \
+                            -v ${BACKEND_DIR}/erp_project/media:/app/media \
                             ${BACKEND_IMAGE}
                     """
                 }
             }
         }
 
+        /* -------------------- BUILD FRONTEND -------------------- */
         stage('Build Frontend Docker Image') {
             steps {
                 script {
@@ -84,14 +79,15 @@ pipeline {
             }
         }
 
+        /* -------------------- DEPLOY FRONTEND -------------------- */
         stage('Deploy Frontend Container') {
             steps {
                 script {
                     echo "🚀 Deploying frontend container..."
 
-                    sh """
-                        docker rm -f ${FRONTEND_CONTAINER} || true
+                    sh "docker rm -f ${FRONTEND_CONTAINER} || true"
 
+                    sh """
                         docker run -d \
                             --name ${FRONTEND_CONTAINER} \
                             --restart unless-stopped \
@@ -102,18 +98,17 @@ pipeline {
             }
         }
 
+        /* -------------------- SMOKE TESTS -------------------- */
         stage('Smoke Tests') {
             steps {
                 sh """
                     echo "🧪 Running smoke tests..."
-                    
-                    sleep 20
+                    sleep 15
 
-                    # Backend test - UPDATED: Pointing to /admin/ because it accepts GET requests
-                    # Using -L to follow redirects (Django often redirects /admin -> /admin/login/)
+                    # Backend test (GET /admin/ always returns 200 or redirect)
                     curl -sSfL http://localhost:8000/admin/ > /dev/null \
                         && echo "✔ Backend OK" \
-                        || (echo "❌ Backend Down (Check logs)" && exit 1)
+                        || (echo "❌ Backend Down" && exit 1)
 
                     # Frontend test
                     curl -sSf http://localhost:3000 > /dev/null \
@@ -124,6 +119,7 @@ pipeline {
         }
     }
 
+    /* -------------------- POST RESULTS -------------------- */
     post {
         success {
             echo "🎉 DEV CI/CD pipeline completed successfully!"
