@@ -49,7 +49,7 @@ class ManageUsersView(APIView):
             'total_pages': paginator.num_pages,
             'current_page': page,
             'total_entries': users.count(),
-        }, status=status.HTTP_200_OK)
+        }, status=status.HTTP_200_OK) 
 
     def post(self, request):
         if not request.user.is_superuser:
@@ -789,16 +789,18 @@ class ColorDetailView(APIView):
         except Color.DoesNotExist:
             return Response({'error': 'Color not found'}, status=status.HTTP_404_NOT_FOUND)
 
-class SupplierListView(APIView):
+from .models import ProductSupplier
+from .serializers import ProductSupplierSerializer
+class ProductSupplierListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
         per_page = int(request.query_params.get('per_page', 10))
-        suppliers = Supplier.objects.all()
+        suppliers = ProductSupplier.objects.all()
         paginator = Paginator(suppliers, per_page)
         page_obj = paginator.get_page(page)
-        serializer = SupplierSerializer(page_obj, many=True)
+        serializer = ProductSupplierSerializer(page_obj, many=True)
         return Response({
             'suppliers': serializer.data,
             'total_pages': paginator.num_pages,
@@ -809,44 +811,44 @@ class SupplierListView(APIView):
     def post(self, request):
         if not request.user.is_superuser:
             return Response({'error': 'Only super admins can add suppliers'}, status=status.HTTP_403_FORBIDDEN)
-        serializer = SupplierSerializer(data=request.data)
+        serializer = ProductSupplierSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class SupplierDetailView(APIView):
+class ProductSupplierDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, pk):
         try:
-            supplier = Supplier.objects.get(pk=pk)
-            serializer = SupplierSerializer(supplier)
+            supplier = ProductSupplier.objects.get(pk=pk)
+            serializer = ProductSupplierSerializer(supplier)
             return Response(serializer.data, status=status.HTTP_200_OK)
-        except Supplier.DoesNotExist:
+        except ProductSupplier.DoesNotExist:
             return Response({'error': 'Supplier not found'}, status=status.HTTP_404_NOT_FOUND)
 
     def put(self, request, pk):
         if not request.user.is_superuser:
             return Response({'error': 'Only super admins can edit suppliers'}, status=status.HTTP_403_FORBIDDEN)
         try:
-            supplier = Supplier.objects.get(pk=pk)
-            serializer = SupplierSerializer(supplier, data=request.data, partial=True)
+            supplier = ProductSupplier.objects.get(pk=pk)
+            serializer = ProductSupplierSerializer(supplier, data=request.data, partial=True)
             if serializer.is_valid():
                 serializer.save()
                 return Response(serializer.data, status=status.HTTP_200_OK)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except Supplier.DoesNotExist:
+        except ProductSupplier.DoesNotExist:
             return Response({'error': 'Supplier not found'}, status=status.HTTP_404_NOT_FOUND)
 
     def delete(self, request, pk):
         if not request.user.is_superuser:
             return Response({'error': 'Only super admins can delete suppliers'}, status=status.HTTP_403_FORBIDDEN)
         try:
-            supplier = Supplier.objects.get(pk=pk)
+            supplier = ProductSupplier.objects.get(pk=pk)
             supplier.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
-        except Supplier.DoesNotExist:
+        except ProductSupplier.DoesNotExist:
             return Response({'error': 'Supplier not found'}, status=status.HTTP_404_NOT_FOUND)
 
 class CustomerListView(APIView):
@@ -986,3 +988,248 @@ class CustomerMergeView(APIView):
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+        
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.db.models import Q
+
+from .models import Supplier, SupplierComment, SupplierAttachment
+from .serializers import (
+    SupplierSerializer,
+    SupplierCreateUpdateSerializer,
+    SupplierCommentSerializer,
+    SupplierAttachmentSerializer
+)
+
+
+class SupplierListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    def get(self, request):
+        suppliers = Supplier.objects.all()
+
+        # Search by supplier ID or name
+        search = request.GET.get("search")
+        if search:
+            suppliers = suppliers.filter(
+                Q(supplier_id__icontains=search) |
+                Q(supplier_name__icontains=search)
+            )
+
+        # Filter by status
+        status_param = request.GET.get("status")
+        if status_param:
+            suppliers = suppliers.filter(status=status_param)
+
+        # Filter by type
+        supplier_type = request.GET.get("type")
+        if supplier_type:
+            suppliers = suppliers.filter(supplier_type=supplier_type)
+
+        # Filter by tier
+        supplier_tier = request.GET.get("tier")
+        if supplier_tier:
+            suppliers = suppliers.filter(supplier_tier=supplier_tier)
+
+        serializer = SupplierSerializer(suppliers, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = SupplierCreateUpdateSerializer(data=request.data)
+        if serializer.is_valid():
+            supplier = serializer.save(created_by=request.user)
+            return Response(
+                SupplierSerializer(supplier).data,
+                status=status.HTTP_201_CREATED
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class SupplierDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    def get(self, request, pk):
+        try:
+            supplier = Supplier.objects.get(pk=pk)
+        except Supplier.DoesNotExist:
+            return Response({"error": "Supplier not found"}, status=404)
+
+        serializer = SupplierSerializer(supplier)
+        return Response(serializer.data)
+
+    def put(self, request, pk):
+        try:
+            supplier = Supplier.objects.get(pk=pk)
+        except Supplier.DoesNotExist:
+            return Response({"error": "Supplier not found"}, status=404)
+
+        serializer = SupplierCreateUpdateSerializer(supplier, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(SupplierSerializer(supplier).data)
+
+        return Response(serializer.errors, status=400)
+
+    def delete(self, request, pk):
+        try:
+            supplier = Supplier.objects.get(pk=pk)
+            supplier.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)  # Better
+        except Supplier.DoesNotExist:
+            return Response({"error": "Supplier not found"}, status=404)
+
+
+class SupplierCommentView(APIView):
+    def get(self, request, pk):
+        comments = SupplierComment.objects.filter(supplier_id=pk)
+        serializer = SupplierCommentSerializer(comments, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, pk):
+        data = request.data.copy()
+        data["supplier"] = pk
+        data["commented_by"] = request.user.id
+
+        serializer = SupplierCommentSerializer(data=data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=201)
+
+        return Response(serializer.errors, status=400)
+
+
+class SupplierAttachmentView(APIView):
+
+    def get(self, request, pk):
+        attachments = SupplierAttachment.objects.filter(supplier_id=pk)
+        serializer = SupplierAttachmentSerializer(attachments, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, pk):
+        data = request.data.copy()
+        data["supplier"] = pk
+        data["uploaded_by"] = request.user.id
+
+        serializer = SupplierAttachmentSerializer(data=data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=201)
+
+        return Response(serializer.errors, status=400)
+
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status, permissions
+from django.core.exceptions import ObjectDoesNotExist
+from django.http import HttpResponse
+from django.template.loader import render_to_string
+from django.core.mail import EmailMessage
+import pdfkit
+import os
+
+from .models import Supplier
+from .serializers import SupplierSerializer
+
+
+# Dynamic wkhtmltopdf path
+WKHTMLTOPDF_PATH = (
+    r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+    if os.name == "nt"
+    else "/usr/bin/wkhtmltopdf"
+)
+config = pdfkit.configuration(wkhtmltopdf=WKHTMLTOPDF_PATH)
+
+class SupplierPDFView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        try:
+            supplier = Supplier.objects.get(id=pk)
+
+            context = {
+                "supplier": supplier,
+                "attachments": supplier.extra_attachments.all(),
+                "comments": supplier.comments.all(),
+            }
+
+            html = render_to_string("supplier_pdf.html", context)
+
+            options = {
+                "page-size": "A4",
+                "margin-top": "10mm",
+                "margin-right": "10mm",
+                "margin-bottom": "10mm",
+                "margin-left": "10mm",
+                "encoding": "UTF-8",
+                "dpi": 300,
+                "zoom": 1,
+                "enable-local-file-access": None,
+                "no-stop-slow-scripts": None,
+                "disable-smart-shrinking": None,
+            }
+
+            pdf = pdfkit.from_string(html, False, configuration=config, options=options)
+
+            response = HttpResponse(pdf, content_type="application/pdf")
+            response["Content-Disposition"] = (
+                f'attachment; filename="supplier_{supplier.supplier_id}.pdf"'
+            )
+            return response
+
+        except ObjectDoesNotExist:
+            return Response(
+                {"error": "Supplier not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        except Exception as e:
+            return Response(
+                {"error": f"PDF generation failed: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+
+class SupplierEmailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            supplier = Supplier.objects.get(id=pk)
+
+            email = request.data.get("email")
+            if not email:
+                return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+            data = SupplierSerializer(supplier).data
+
+            # Default HTML email template
+            html_content = request.data.get(
+                "html_content",
+                f"""
+                <html>
+                    <body>
+                        <h2>Supplier Details</h2>
+                        <p><strong>Supplier ID:</strong> {supplier.supplier_id}</p>
+                        <p><strong>Name:</strong> {supplier.supplier_name}</p>
+                        <p><strong>Country:</strong> {supplier.get_country_of_registration_display()}</p>
+                        <p><strong>Status:</strong> {supplier.status}</p>
+                        <p><strong>Risk Rating:</strong> {supplier.risk_rating}</p>
+                        <p>Thank you.</p>
+                    </body>
+                </html>
+                """
+            )
+
+            subject = f"Supplier {supplier.supplier_id}"
+            msg = EmailMessage(subject, html_content, to=[email])
+            msg.content_subtype = "html"
+            msg.send()
+
+            return Response({"message": "Email sent successfully"}, status=status.HTTP_200_OK)
+
+        except ObjectDoesNotExist:
+            return Response({"error": "Supplier not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

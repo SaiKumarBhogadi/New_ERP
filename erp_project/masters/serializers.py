@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import CustomUser, Branch, Department, Role, Category, TaxCode, UOM, Warehouse, Size, Color, Supplier, Product, Customer
+from .models import CustomUser, Branch, Department, Role, Category, TaxCode, UOM, Warehouse, Size, Color, ProductSupplier, Product, Customer
 from core.models import Candidate
 import re
 import logging
@@ -65,7 +65,7 @@ class RoleUpdateSerializer(serializers.ModelSerializer):
 
 from rest_framework import serializers
 from .models import CustomUser, Branch, Department, Role
-from core.serializers import CandidateDocumentSerializer, CandidateSerializer
+from core.serializers import CandidateDocumentSerializer, CandidateSerializer 
 import re
 import logging
 
@@ -201,10 +201,12 @@ class ColorSerializer(serializers.ModelSerializer):
         model = Color
         fields = ['id', 'name']
 
-class SupplierSerializer(serializers.ModelSerializer):
+class ProductSupplierSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Supplier
+        model = ProductSupplier
         fields = ['id', 'name', 'contact_person', 'phone_number', 'email', 'address']
+
+from .models import ProductSupplier
 
 class ProductSerializer(serializers.ModelSerializer):
     category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all(), required=False, allow_null=True)
@@ -213,7 +215,7 @@ class ProductSerializer(serializers.ModelSerializer):
     warehouse = serializers.PrimaryKeyRelatedField(queryset=Warehouse.objects.all(), required=False, allow_null=True)
     size = serializers.PrimaryKeyRelatedField(queryset=Size.objects.all(), required=False, allow_null=True)
     color = serializers.PrimaryKeyRelatedField(queryset=Color.objects.all(), required=False, allow_null=True)
-    supplier = serializers.PrimaryKeyRelatedField(queryset=Supplier.objects.all(), required=False, allow_null=True)
+    supplier = serializers.PrimaryKeyRelatedField(queryset=ProductSupplier.objects.all(), required=False, allow_null=True)
 
     related_products = serializers.CharField(max_length=1000, required=False, allow_blank=True)
 
@@ -377,3 +379,34 @@ class CustomerSerializer(serializers.ModelSerializer):
         else:
             last_id = 1
         return f'CUS{last_id:04d}'
+    
+from rest_framework import serializers
+from .models import Supplier, SupplierComment, SupplierAttachment
+
+
+class SupplierSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Supplier
+        fields = "__all__"
+
+
+class SupplierCreateUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Supplier
+        exclude = [
+            "supplier_id", "created_at", "updated_at", "created_by"
+        ]
+
+
+class SupplierCommentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SupplierComment
+        fields = "__all__"
+        read_only_fields = ["timestamp"]
+
+
+class SupplierAttachmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SupplierAttachment
+        fields = "__all__"
+        read_only_fields = ["uploaded_at"]

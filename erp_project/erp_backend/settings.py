@@ -57,7 +57,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware', #add from prakash raj - frontend integration
+    'corsheaders.middleware.CorsMiddleware', 
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -106,8 +106,8 @@ WSGI_APPLICATION = 'erp_backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'new_erp',
-        'USER': 'erp_admin',
+        'NAME': 'erp_dev_db',
+        'USER': 'admin',
         'PASSWORD': 'Test@123',
         'HOST': 'localhost',
         'PORT': '3306',
@@ -197,5 +197,5 @@ EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = "sainaidu6327@gmail.com"
-EMAIL_HOST_PASSWORD = ""  # not your real Gmail password
+EMAIL_HOST_USER = "saibhogadi@thestackly.com"
+EMAIL_HOST_PASSWORD = "onzltnwegrlnawta"  # not your real Gmail password
