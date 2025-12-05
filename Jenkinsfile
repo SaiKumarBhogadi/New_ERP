@@ -20,14 +20,8 @@ pipeline {
         stage('Checkout Both Repos') {
             steps {
                 echo "📥 Cloning backend & frontend..."
-
-                dir("${BACKEND_DIR}") {
-                    git branch: 'dev', url: "${BACKEND_REPO}"
-                }
-
-                dir("${FRONTEND_DIR}") {
-                    git branch: 'dev', url: "${FRONTEND_REPO}"
-                }
+                dir("${BACKEND_DIR}") { git branch: 'dev', url: "${BACKEND_REPO}" }
+                dir("${FRONTEND_DIR}") { git branch: 'dev', url: "${FRONTEND_REPO}" }
             }
         }
 
@@ -46,14 +40,9 @@ pipeline {
         stage('Deploy Backend Container') {
             steps {
                 script {
-                    echo "🚀 Deploying backend container..."
+                    echo "🚀 Deploying backend container (RDS Connected)..."
 
-                    // --- FIX: Reset Database ---
-                    sh """
-                        echo "🧹 Cleaning up old database to fix migration conflicts..."
-                        rm -f "${WORKSPACE}/erp-backend/erp_project/db.sqlite3"
-                        touch "${WORKSPACE}/erp-backend/erp_project/db.sqlite3"
-                    """
+                    // REMOVED: db.sqlite3 cleaning script (Not needed for RDS)
 
                     sh """
                         docker rm -f ${BACKEND_CONTAINER} || true
@@ -64,9 +53,9 @@ pipeline {
                             -p 8000:8000 \
                             --env-file "${WORKSPACE}/erp-backend/erp_project/.env.dev" \
                             -v "${WORKSPACE}/erp-backend/erp_project/media:/app/media" \
-                            -v "${WORKSPACE}/erp-backend/erp_project/db.sqlite3:/app/db.sqlite3" \
                             ${BACKEND_IMAGE}
                     """
+                    // REMOVED: -v .../db.sqlite3:/app/db.sqlite3 (RDS stores data in cloud)
                 }
             }
         }
@@ -87,10 +76,8 @@ pipeline {
             steps {
                 script {
                     echo "🚀 Deploying frontend container..."
-
                     sh """
                         docker rm -f ${FRONTEND_CONTAINER} || true
-
                         docker run -d \
                             --name ${FRONTEND_CONTAINER} \
                             --restart unless-stopped \
@@ -105,19 +92,11 @@ pipeline {
             steps {
                 sh """
                     echo "🧪 Running smoke tests..."
-                    
                     sleep 20
-
-                    # Backend test - UPDATED: Pointing to /admin/ because it accepts GET requests
-                    # Using -L to follow redirects (Django often redirects /admin -> /admin/login/)
-                    curl -sSfL http://localhost:8000/admin/ > /dev/null \
-                        && echo "✔ Backend OK" \
-                        || (echo "❌ Backend Down (Check logs)" && exit 1)
-
+                    # Backend test (Admin Page)
+                    curl -sSfL http://localhost:8000/admin/ > /dev/null && echo "✔ Backend OK" || (echo "❌ Backend Down (Check logs)" && exit 1)
                     # Frontend test
-                    curl -sSf http://localhost:3000 > /dev/null \
-                        && echo "✔ Frontend OK" \
-                        || (echo "❌ Frontend Down" && exit 1)
+                    curl -sSf http://localhost:3000 > /dev/null && echo "✔ Frontend OK" || (echo "❌ Frontend Down" && exit 1)
                 """
             }
         }
