@@ -1,8 +1,7 @@
 # -----------------------
 # Backend Dockerfile
 # -----------------------
-FROM python:3.10-slim
-
+FROM python:3.10-bullseye
 # Install dependencies including wkhtmltopdf
 RUN apt-get update && apt-get install -y \
     build-essential \
