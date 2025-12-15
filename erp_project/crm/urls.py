@@ -11,7 +11,6 @@ urlpatterns = [
     path('quotations/<int:pk>/attachments/<int:attachment_id>/', views.QuotationAttachmentView.as_view(), name='delete_attachment'),
     path('quotations/<int:pk>/comments/', views.QuotationCommentView.as_view(), name='quotation_comments'),
     path('quotations/<int:pk>/history/', views.QuotationHistoryView.as_view(), name='quotation_history'),
-    path('quotations/<int:pk>/revisions/', views.QuotationRevisionView.as_view(), name='quotation_revisions'),
     path('quotations/<int:pk>/pdf/', views.QuotationPDFView.as_view(), name='quotation_pdf'),
     path('quotations/<int:pk>/email/', views.QuotationEmailView.as_view(), name='quotation_email'),
 

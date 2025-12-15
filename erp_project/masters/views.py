@@ -319,7 +319,7 @@ class RoleDetailView(APIView):
             return Response({'error': 'Role not found'}, status=status.HTTP_404_NOT_FOUND)
 
 class ProductListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -345,7 +345,7 @@ class ProductListView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class ProductDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request, pk):
         try:
@@ -379,7 +379,7 @@ class ProductDetailView(APIView):
             return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
 
 class ProductImportView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def post(self, request):
         if not request.user.is_superuser:
@@ -430,7 +430,7 @@ class ProductImportView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 class CategoryListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -456,7 +456,7 @@ class CategoryListView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class CategoryDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request, pk):
         try:
@@ -490,7 +490,7 @@ class CategoryDetailView(APIView):
             return Response({'error': 'Category not found'}, status=status.HTTP_404_NOT_FOUND)
 
 class TaxCodeListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -516,7 +516,7 @@ class TaxCodeListView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class TaxCodeDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request, pk):
         try:
@@ -550,7 +550,7 @@ class TaxCodeDetailView(APIView):
             return Response({'error': 'Tax code not found'}, status=status.HTTP_404_NOT_FOUND)
 
 class UOMListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -576,7 +576,7 @@ class UOMListView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class UOMDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request, pk):
         try:
@@ -610,7 +610,7 @@ class UOMDetailView(APIView):
             return Response({'error': 'UOM not found'}, status=status.HTTP_404_NOT_FOUND)
 
 class WarehouseListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -636,7 +636,7 @@ class WarehouseListView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class WarehouseDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request, pk):
         try:
@@ -670,7 +670,7 @@ class WarehouseDetailView(APIView):
             return Response({'error': 'Warehouse not found'}, status=status.HTTP_404_NOT_FOUND)
 
 class SizeListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -696,7 +696,7 @@ class SizeListView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class SizeDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request, pk):
         try:
@@ -730,7 +730,7 @@ class SizeDetailView(APIView):
             return Response({'error': 'Size not found'}, status=status.HTTP_404_NOT_FOUND)
 
 class ColorListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -756,7 +756,7 @@ class ColorListView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class ColorDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request, pk):
         try:
@@ -792,7 +792,7 @@ class ColorDetailView(APIView):
 from .models import ProductSupplier
 from .serializers import ProductSupplierSerializer
 class ProductSupplierListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -818,7 +818,7 @@ class ProductSupplierListView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class ProductSupplierDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request, pk):
         try:
@@ -852,7 +852,7 @@ class ProductSupplierDetailView(APIView):
             return Response({'error': 'Supplier not found'}, status=status.HTTP_404_NOT_FOUND)
 
 class CustomerListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -876,7 +876,7 @@ class CustomerListView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class CustomerDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request, pk):
         try:
@@ -906,7 +906,7 @@ class CustomerDetailView(APIView):
             return Response({'error': 'Customer not found'}, status=status.HTTP_404_NOT_FOUND)
 
 class CustomerSummaryView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request):
         customers = Customer.objects.all()
@@ -921,7 +921,7 @@ class CustomerSummaryView(APIView):
         return Response(summary, status=status.HTTP_200_OK)
 
 class CustomerDuplicatesView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request):
         duplicates = (
@@ -949,7 +949,7 @@ class CustomerDuplicatesView(APIView):
         return Response(duplicate_groups, status=status.HTTP_200_OK)
 
 class CustomerMergeView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def post(self, request):
         primary_id = request.data.get('primary_id')
@@ -1005,7 +1005,7 @@ from .serializers import (
 
 
 class SupplierListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
     def get(self, request):
         suppliers = Supplier.objects.all()
 
@@ -1047,7 +1047,7 @@ class SupplierListView(APIView):
 
 
 class SupplierDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
     def get(self, request, pk):
         try:
             supplier = Supplier.objects.get(pk=pk)
@@ -1080,6 +1080,7 @@ class SupplierDetailView(APIView):
 
 
 class SupplierCommentView(APIView):
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
     def get(self, request, pk):
         comments = SupplierComment.objects.filter(supplier_id=pk)
         serializer = SupplierCommentSerializer(comments, many=True)
@@ -1099,7 +1100,7 @@ class SupplierCommentView(APIView):
 
 
 class SupplierAttachmentView(APIView):
-
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
     def get(self, request, pk):
         attachments = SupplierAttachment.objects.filter(supplier_id=pk)
         serializer = SupplierAttachmentSerializer(attachments, many=True)
@@ -1141,7 +1142,7 @@ WKHTMLTOPDF_PATH = (
 config = pdfkit.configuration(wkhtmltopdf=WKHTMLTOPDF_PATH)
 
 class SupplierPDFView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def get(self, request, pk):
         try:
@@ -1191,7 +1192,7 @@ class SupplierPDFView(APIView):
 
 
 class SupplierEmailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
     def post(self, request, pk):
         try:

@@ -58,59 +58,105 @@ class EnquiryItem(models.Model):
     def __str__(self):
         return f"{self.item_code} - {self.product_description}"
     
-
 from django.db import models
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from masters.models import Branch, Department, Role
-from masters.models import Product, UOM,Customer
-
+from masters.models import Product, UOM, Customer
 
 User = get_user_model()
 
+
 class Quotation(models.Model):
-    quotation_id = models.CharField(max_length=10, unique=True)  # e.g., QUO001
+    quotation_id = models.CharField(max_length=10, unique=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+
     customer_name = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='quotations')
     customer_po_referance = models.CharField(max_length=100, blank=True, null=True)
-    sales_rep = models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='sales_rep_quotations',limit_choices_to={'role__role': 'Sales Representative'})
-    quotation_type = models.CharField(max_length=50, choices=[('Standard', 'Standard'), ('Blanket', 'Blanket'), ('Service', 'Service')])
+
+    sales_rep = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sales_rep_quotations',
+        limit_choices_to={'role__role': 'Sales Representative'}
+    )
+
+    quotation_type = models.CharField(
+        max_length=50,
+        choices=[('Standard', 'Standard'), ('Blanket', 'Blanket'), ('Service', 'Service')]
+    )
+
     quotation_date = models.DateField()
     expiry_date = models.DateField()
-    currency = models.CharField(max_length=3, choices=[('USD', 'USD'), ('INR', 'INR'), ('EUR', 'EUR'), ('GBP', 'GBP'), ('SGD', 'SGD')])
-    payment_terms = models.CharField(max_length=50, blank=True, choices=[('Net 15', 'Net 15'), ('Net 30', 'Net 30'), ('Net 45', 'Net 45'), ('Net 60', 'Net 60'), ('Advance', 'Advance'), ('COD', 'COD')])
+
+    currency = models.CharField(
+        max_length=3,
+        choices=[('USD', 'USD'), ('INR', 'INR'), ('EUR', 'EUR'), ('GBP', 'GBP'), ('SGD', 'SGD')]
+    )
+
+    payment_terms = models.CharField(
+        max_length=50,
+        blank=True,
+        choices=[('Net 15', 'Net 15'), ('Net 30', 'Net 30'), ('Net 45', 'Net 45'),
+                 ('Net 60', 'Net 60'), ('Advance', 'Advance'), ('COD', 'COD')]
+    )
+
     expected_delivery = models.DateField()
-    status = models.CharField(max_length=20, choices=[('Draft', 'Draft'), ('Send', 'Send'), ('Approved', 'Approved'), ('Rejected', 'Rejected'), ('Converted (SO)', 'Converted (SO)'), ('Expired', 'Expired')])
+
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('Draft', 'Draft'), ('Send', 'Send'), ('Approved', 'Approved'),
+            ('Rejected', 'Rejected'), ('Converted (SO)', 'Converted (SO)'), ('Expired', 'Expired')
+        ]
+    )
+
     revise_count = models.PositiveIntegerField(default=1)
     globalDiscount = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     shippingCharges = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     created_at = models.DateTimeField(auto_now_add=True)
+
     def __str__(self):
         return f"{self.quotation_id} - {self.customer_name}"
+
 
 class QuotationItem(models.Model):
     quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='items')
     product_id = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='quotation_items')
-    product_name = models.CharField(max_length=200, editable=False)  # Populated from Product.name
+
+    # Auto-filled from product table
+    product_name = models.CharField(max_length=200, editable=False)
+
     uom = models.ForeignKey(UOM, on_delete=models.CASCADE, related_name='quotation_items')
+
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     discount = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     tax = models.DecimalField(max_digits=5, decimal_places=2)
     quantity = models.PositiveIntegerField()
+
     total = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
 
     def save(self, *args, **kwargs):
-        self.product_name = self.product_id.name  # Auto-populate product name
-        self.total = self.unit_price * self.quantity * (1 - self.discount / 100) * (1 + self.tax / 100)
+        self.product_name = self.product_id.name
+        self.total = (
+                self.unit_price *
+                self.quantity *
+                (1 - self.discount / 100) *
+                (1 + self.tax / 100)
+        )
         super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.product_id} - {self.product_name}"
 
+
 class QuotationAttachment(models.Model):
     quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='attachments')
-    file = models.FileField(upload_to='attachments/', blank=True, null=True)  # Replaced URL with FileField
+    file = models.FileField(upload_to='attachments/', blank=True, null=True)
     uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='uploaded_attachments')
     timestamp = models.DateTimeField(auto_now_add=True)
+
 
 class QuotationComment(models.Model):
     quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='comments')
@@ -121,6 +167,7 @@ class QuotationComment(models.Model):
     def __str__(self):
         return f"{self.person_name} - {self.comment[:20]}"
 
+
 class QuotationHistory(models.Model):
     quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='history')
     status = models.CharField(max_length=20)
@@ -130,17 +177,9 @@ class QuotationHistory(models.Model):
     def __str__(self):
         return f"{self.status} by {self.action_by}"
 
-class QuotationRevision(models.Model):
-    quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='revisions')
-    revision_number = models.PositiveIntegerField()
-    date = models.DateField()
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='revisions')
-    status = models.CharField(max_length=20, default='Draft')
-    comment = models.TextField(blank=True)
-    revise_history = models.JSONField(default=dict)
 
-    def __str__(self):
-        return f"Rev {self.revision_number} - {self.quotation.quotation_id}"
+
+
     
 
 from django.db import models
@@ -161,7 +200,7 @@ class SalesOrder(models.Model):
     ]
     sales_order_id = models.CharField(max_length=50, unique=True, editable=False)
     order_date = models.DateField(default=timezone.now)
-    sales_rep = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, limit_choices_to={'role__role': 'Sales Representative'})
+    sales_rep = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, limit_choices_to={'role__role': 'Sales Representative'})
     order_type = models.CharField(max_length=50, choices=[('Standard', 'Standard'), ('Rush', 'Rush'), ('Backorder', 'Backorder')])
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
     payment_method = models.CharField(max_length=50, blank=True)
@@ -186,20 +225,37 @@ class SalesOrder(models.Model):
             self.sales_order_id = f'SO{new_num:04d}'
         super().save(*args, **kwargs)
 
+from masters.models import TaxCode
+from decimal import Decimal
+
 class SalesOrderItem(models.Model):
     sales_order = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name='items')
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
-    uom = models.CharField(max_length=50, blank=True)
+    uom = models.ForeignKey(UOM, on_delete=models.SET_NULL, null=True, blank=True)
     quantity = models.IntegerField(default=0)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     discount = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+
+    # 🚀 NEW FIELD
+    tax = models.ForeignKey(TaxCode, on_delete=models.SET_NULL, null=True, blank=True)
+
     total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     def save(self, *args, **kwargs):
         subtotal = self.quantity * self.unit_price
         discount_amount = (subtotal * self.discount) / 100
-        self.total = subtotal - discount_amount
+        amount_after_discount = subtotal - discount_amount
+
+        tax_amount = Decimal("0")
+        if self.tax:
+            tax_percentage = Decimal(str(self.tax.percentage))  # Convert float → Decimal
+            tax_amount = (amount_after_discount * tax_percentage) / Decimal("100")
+
+        self.total = amount_after_discount + tax_amount
+
         super().save(*args, **kwargs)
+
+
 
 class SalesOrderComment(models.Model):
     sales_order = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name='comments')

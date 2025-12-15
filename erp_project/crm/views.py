@@ -65,8 +65,8 @@ class EnquiryDetailView(APIView):
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
-from .models import Quotation, QuotationItem, QuotationAttachment, QuotationComment, QuotationHistory, QuotationRevision
-from .serializers import QuotationSerializer, QuotationCreateSerializer, QuotationAttachmentSerializer, QuotationCommentSerializer, QuotationHistorySerializer, QuotationItemSerializer, QuotationRevisionSerializer
+from .models import Quotation, QuotationItem, QuotationAttachment, QuotationComment, QuotationHistory
+from .serializers import QuotationSerializer, QuotationCreateSerializer, QuotationAttachmentSerializer, QuotationCommentSerializer, QuotationHistorySerializer, QuotationItemSerializer
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import HttpResponse
 from reportlab.lib import colors
@@ -80,7 +80,7 @@ class QuotationListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        quotations = Quotation.objects.filter(user=request.user).order_by('-created_at')
+        quotations = Quotation.objects.all().order_by('-created_at')
         serializer = QuotationSerializer(quotations, many=True)
         return Response(serializer.data)
 
@@ -225,36 +225,6 @@ class QuotationHistoryView(APIView):
         except ObjectDoesNotExist:
             return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
 
-class QuotationRevisionView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, pk):
-        try:
-            quotation = Quotation.objects.get(id=pk, user=request.user)
-            revision_data = {
-                'revision_number': quotation.revise_count,
-                'date': request.data.get('date'),
-                'created_by': request.user,
-                'status': request.data.get('status', 'Draft'),
-                'comment': request.data.get('comment', ''),
-                'revise_history': request.data.get('revise_history', {}),
-            }
-            revision = QuotationRevision.objects.create(quotation=quotation, **revision_data)
-            quotation.revise_count += 1
-            quotation.save()
-            serializer = QuotationRevisionSerializer(revision)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def get(self, request, pk):
-        try:
-            quotation = Quotation.objects.get(id=pk, user=request.user)
-            revisions = quotation.revisions.all()
-            serializer = QuotationRevisionSerializer(revisions, many=True)
-            return Response(serializer.data)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
 
@@ -266,11 +236,15 @@ from rest_framework import status, permissions
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import HttpResponse
 from django.template.loader import render_to_string
+from django.core.mail import EmailMessage
 import pdfkit
 import os
-from .models import Quotation
 
-# Dynamic path for wkhtmltopdf
+from .models import Quotation
+from .serializers import QuotationSerializer    # ⬅ FIXED (you forgot this import)
+
+
+# Path for wkhtmltopdf
 WKHTMLTOPDF_PATH = (
     r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
     if os.name == "nt"
@@ -279,6 +253,10 @@ WKHTMLTOPDF_PATH = (
 config = pdfkit.configuration(wkhtmltopdf=WKHTMLTOPDF_PATH)
 
 
+
+# ---------------------------------------------------------
+# PDF GENERATION VIEW
+# ---------------------------------------------------------
 class QuotationPDFView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -315,10 +293,8 @@ class QuotationPDFView(APIView):
                 "dpi": 300,
                 "zoom": 1,
                 "enable-local-file-access": None,
-                # wkhtmltopdf sometimes needs this to respect @page rules
-                "no-stop-slow-scripts": None,
-                "disable-smart-shrinking": None,
             }
+
             pdf = pdfkit.from_string(html, False, configuration=config, options=options)
 
             response = HttpResponse(pdf, content_type="application/pdf")
@@ -329,8 +305,10 @@ class QuotationPDFView(APIView):
 
         except ObjectDoesNotExist:
             return Response(
-                {"error": "Quotation not found"}, status=status.HTTP_404_NOT_FOUND
+                {"error": "Quotation not found"},
+                status=status.HTTP_404_NOT_FOUND
             )
+
         except Exception as e:
             return Response(
                 {"error": f"PDF generation failed: {str(e)}"},
@@ -338,40 +316,61 @@ class QuotationPDFView(APIView):
             )
 
 
+
+# ---------------------------------------------------------
+# EMAIL QUOTATION VIEW
+# ---------------------------------------------------------
 class QuotationEmailView(APIView):
-      permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
 
-      def post(self, request, pk):
-          try:
-              quotation = Quotation.objects.get(id=pk, user=request.user)
-              email = request.data.get('email')
-              html_content = request.data.get('html_content', """
-                  <html>
-                      <body>
-                          <h2>Quotation Details</h2>
-                          <p><strong>Quotation ID:</strong> {quotation.quotation_id}</p>
-                          <p><strong>Customer:</strong> {quotation.customer_name}</p>
-                          <p><strong>Date:</strong> {quotation.quotation_date}</p>
-                          <p><strong>Total:</strong> ${grand_total}</p>
-                          <p>Thank you for your business!</p>
-                      </body>
-                  </html>
-                  """.format(quotation=quotation, grand_total=QuotationSerializer(quotation).data.get('grand_total', 0)))
+    def post(self, request, pk):
+        try:
+            quotation = Quotation.objects.get(id=pk, user=request.user)
+            email = request.data.get('email')
 
-              if not email:
-                  return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
+            if not email:
+                return Response(
+                    {'error': 'Email is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-              subject = f'Quotation {quotation.quotation_id}'
-              msg = EmailMessage(subject, html_content, to=[email])
-              msg.content_subtype = 'html'
-              msg.send()
-              return Response({'message': 'Email sent successfully'}, status=status.HTTP_200_OK)
-          except ObjectDoesNotExist:
-              return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
-          except Exception as e:
-              return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-          
+            # ----- Calculate grand total -----
+            items = quotation.items.all()
+            subtotal = sum(item.total for item in items)
+            global_discount_amount = subtotal * (quotation.globalDiscount / 100)
+            grand_total = subtotal - global_discount_amount + quotation.shippingCharges
 
+            # ----- Email HTML -----
+            html_content = f"""
+                <html>
+                    <body>
+                        <h2>Quotation Details</h2>
+                        <p><strong>Quotation ID:</strong> {quotation.quotation_id}</p>
+                        <p><strong>Customer:</strong> {quotation.customer_name}</p>
+                        <p><strong>Date:</strong> {quotation.quotation_date}</p>
+                        <p><strong>Total:</strong> ₹{grand_total}</p>
+                        <br>
+                        <p>Thank you for your business!</p>
+                    </body>
+                </html>
+            """
+
+            subject = f'Quotation {quotation.quotation_id}'
+
+            msg = EmailMessage(subject, html_content, to=[email])
+            msg.content_subtype = 'html'  # send as HTML
+            msg.send()
+
+            return Response({'message': 'Email sent successfully'}, status=status.HTTP_200_OK)
+
+        except ObjectDoesNotExist:
+            return Response(
+                {'error': 'Quotation not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 from rest_framework.views import APIView
@@ -394,7 +393,7 @@ class SalesOrderListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        sales_orders = SalesOrder.objects.filter(sales_rep=request.user).order_by('-created_at')
+        sales_orders = SalesOrder.objects.all().order_by('-created_at')
         serializer = SalesOrderSerializer(sales_orders, many=True)
         return Response(serializer.data)
 
@@ -405,20 +404,14 @@ class SalesOrderListView(APIView):
             return Response(SalesOrderSerializer(sales_order).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def delete(self, request, pk):
-        try:
-            sales_order = SalesOrder.objects.get(id=pk, sales_rep=request.user)
-            sales_order.delete()
-            return Response({'message': 'Sales Order deleted successfully'}, status=status.HTTP_200_OK)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Sales Order not found'}, status=status.HTTP_404_NOT_FOUND)
+    
 
 class SalesOrderDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, pk):
         try:
-            sales_order = SalesOrder.objects.get(id=pk, sales_rep=request.user)
+            sales_order = SalesOrder.objects.get(id=pk)
             serializer = SalesOrderSerializer(sales_order)
             return Response(serializer.data)
         except ObjectDoesNotExist:
@@ -426,7 +419,7 @@ class SalesOrderDetailView(APIView):
 
     def put(self, request, pk):
         try:
-            sales_order = SalesOrder.objects.get(id=pk, sales_rep=request.user)
+            sales_order = SalesOrder.objects.get(id=pk)
             action = request.data.get('action')
             if action == 'save_draft':
                 sales_order.status = 'Draft'
@@ -449,6 +442,14 @@ class SalesOrderDetailView(APIView):
             sales_order.save()
             SalesOrderHistory.objects.create(sales_order=sales_order, action=action, user=request.user)
             return Response(SalesOrderSerializer(sales_order).data, status=status.HTTP_200_OK)
+        except ObjectDoesNotExist:
+            return Response({'error': 'Sales Order not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+    def delete(self, request, pk):
+        try:
+            sales_order = SalesOrder.objects.get(id=pk)
+            sales_order.delete()
+            return Response({'message': 'Sales Order deleted successfully'}, status=status.HTTP_200_OK)
         except ObjectDoesNotExist:
             return Response({'error': 'Sales Order not found'}, status=status.HTTP_404_NOT_FOUND)
 

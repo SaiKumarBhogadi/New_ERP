@@ -1,51 +1,128 @@
+# core/permissions.py (or your preferred location)
+
 from rest_framework import permissions
 
 class RoleBasedPermission(permissions.BasePermission):
+    """
+    Role-based permission using CustomUser.role.permissions JSONField
+    Superusers have full access
+    """
+
+    # Map view class names to permission categories
+    VIEW_TO_CATEGORY = {
+        # Masters / Setup
+        'DepartmentListView': 'masters',
+        'DepartmentDetailView': 'masters',
+        'RoleView': 'masters',
+        'RoleDetailView': 'masters',
+        'BranchListView': 'masters',
+        'BranchDetailView': 'masters',
+
+        # Users Management
+        'ManageUsersView': 'users',
+        'ManageUserDetailView': 'users',
+
+        # Onboarding / HR
+        'OnboardingListView': 'hr',
+        'OnboardingDetailView': 'hr',
+
+        # Inventory / Masters
+        'ProductListView': 'inventory',
+        'ProductDetailView': 'inventory',
+        'ProductImportView': 'inventory',
+        'CategoryListView': 'inventory',
+        'CategoryDetailView': 'inventory',
+        'TaxCodeListView': 'inventory',
+        'TaxCodeDetailView': 'inventory',
+        'UOMListView': 'inventory',
+        'UOMDetailView': 'inventory',
+        'WarehouseListView': 'inventory',
+        'WarehouseDetailView': 'inventory',
+        'SizeListView': 'inventory',
+        'SizeDetailView': 'inventory',
+        'ColorListView': 'inventory',
+        'ColorDetailView': 'inventory',
+        'ProductSupplierListView': 'inventory',
+        'ProductSupplierDetailView': 'inventory',
+
+        #  Supplier
+        'SupplierListView': 'supplier',
+        'SupplierDetailView': 'supplier',
+
+        # Attendance
+        'AttendanceView': 'attendance',
+        'CheckInOutView': 'attendance',
+
+        # Task Management
+        'TaskListView': 'task',
+        'TaskDetailView': 'task',
+        'TaskSummaryView': 'task',
+
+        # Dashboard
+        'DashboardCombinedView': 'dashboard',
+
+        # Profile
+        'ProfileView': 'profile',
+
+        # Auth Views - AllowAny already set, but safe fallback
+        'RegisterView': 'auth',
+        'LoginView': 'auth',
+        'LogoutView': 'auth',
+        'ForgotPasswordView': 'auth',
+        'ResetPasswordView': 'auth',
+    }
+
     def has_permission(self, request, view):
-        # Superusers have full access
+        # Superuser → full access
         if request.user.is_superuser:
             return True
 
-        # Non-superusers must have a role
-        if not request.user.profile.role:
+        # Public endpoints (AllowAny views)
+        public_views = ['RegisterView', 'LoginView', 'ForgotPasswordView', 'ResetPasswordView']
+        if view.__class__.__name__ in public_views:
+            return True
+
+        # Must be authenticated
+        if not request.user.is_authenticated:
             return False
 
-        # Get the user's role permissions
-        role_permissions = request.user.profile.role.permissions
-
-        # Map the view to a permission category
-        permission_category = None
-        if view.__class__.__name__ in ['DepartmentListView', 'DepartmentDetailView']:
-            permission_category = 'dashboard'
-        elif view.__class__.__name__ in ['RoleView', 'RoleDetailView']:
-            permission_category = 'task'
-        elif view.__class__.__name__ in ['BranchListView', 'BranchDetailView']:
-            permission_category = 'projectTracker'
-        elif view.__class__.__name__ in ['ManageUsersView', 'ManageUserDetailView', 'OnboardingListView', 'OnboardingDetailView']:
-            permission_category = 'onboarding'
-        elif view.__class__.__name__ in ['ProductListView', 'ProductDetailView', 'ProductImportView', 'CategoryListView', 'CategoryDetailView', 'TaxCodeListView', 'TaxCodeDetailView', 'UOMListView', 'UOMDetailView', 'WarehouseListView', 'WarehouseDetailView', 'SizeListView', 'SizeDetailView', 'ColorListView', 'ColorDetailView', 'SupplierListView', 'SupplierDetailView']:
-            permission_category = 'inventory'
-        elif view.__class__.__name__ in ['AttendanceView', 'CheckInOutView']:
-            permission_category = 'attendance'
-        elif view.__class__.__name__ in ['ProfileView']:
-            permission_category = 'profile'
-        else:
-            return False  # Deny access by default for unmapped views
-
-        # Check if the category exists in permissions
-        if permission_category not in role_permissions:
+        # Must have a role
+        try:
+            role = request.user.role
+            if not role:
+                return False
+            permissions_dict = role.permissions  # JSONField
+        except AttributeError:
             return False
 
-        category_permissions = role_permissions[permission_category]
+        # Get category from view name
+        view_name = view.__class__.__name__
+        category = self.VIEW_TO_CATEGORY.get(view_name)
 
-        # Check specific permissions based on the request method
-        if request.method in permissions.SAFE_METHODS:  # GET, HEAD, OPTIONS
-            return category_permissions.get('view', False)
+        if not category:
+            return False  # Unknown view → deny
+
+        # Get category permissions
+        cat_perms = permissions_dict.get(category, {})
+
+        # SAFE METHODS (GET, HEAD, OPTIONS)
+        if request.method in permissions.SAFE_METHODS:
+            return cat_perms.get('view', False)
+
+        # CREATE (POST on ListView)
         elif request.method == 'POST':
-            return category_permissions.get('create', False)
+            if view_name.endswith('ListView'):
+                return cat_perms.get('create', False)
+            else:
+                # Actions like submit, comment, upload → usually need edit
+                return cat_perms.get('edit', False)
+
+        # UPDATE (PUT/PATCH)
         elif request.method in ['PUT', 'PATCH']:
-            return category_permissions.get('edit', False)
+            return cat_perms.get('edit', False)
+
+        # DELETE
         elif request.method == 'DELETE':
-            return category_permissions.get('delete', False)
+            return cat_perms.get('delete', False)
 
         return False

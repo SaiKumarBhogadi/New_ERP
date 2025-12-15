@@ -66,70 +66,93 @@ class EnquiryCreateSerializer(serializers.ModelSerializer):
         return value
 
     
-
 from rest_framework import serializers
-from .models import Quotation, QuotationItem, QuotationAttachment, QuotationComment, QuotationHistory, QuotationRevision
-from masters.models import Customer, Role
-from masters.models import Product, UOM
+from .models import (
+    Quotation, QuotationItem,
+    QuotationAttachment, QuotationComment,
+    QuotationHistory
+)
+from masters.models import Customer, Product, UOM
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
 
+
 class QuotationItemSerializer(serializers.ModelSerializer):
     product_id = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
     uom = serializers.PrimaryKeyRelatedField(queryset=UOM.objects.all())
+
+    # Automatically show product name
     product_name = serializers.CharField(source='product_id.name', read_only=True)
 
     class Meta:
         model = QuotationItem
-        fields = ['id', 'product_id', 'product_name', 'uom', 'unit_price', 'discount', 'tax', 'quantity', 'total']
+        fields = [
+            'id', 'product_id', 'product_name', 'uom',
+            'unit_price', 'discount', 'tax', 'quantity', 'total'
+        ]
+
 
 class QuotationAttachmentSerializer(serializers.ModelSerializer):
-    uploaded_by = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), default=serializers.CurrentUserDefault())
-    file = serializers.FileField(required = False,allow_null=True)
+    uploaded_by = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        default=serializers.CurrentUserDefault()
+    )
+    file = serializers.FileField(required=False, allow_null=True)
 
     class Meta:
         model = QuotationAttachment
         fields = ['id', 'file', 'uploaded_by', 'timestamp']
 
+
 class QuotationCommentSerializer(serializers.ModelSerializer):
-    person_name = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), default=serializers.CurrentUserDefault())
+    person_name = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        default=serializers.CurrentUserDefault()
+    )
 
     class Meta:
         model = QuotationComment
         fields = ['id', 'person_name', 'comment', 'timestamp']
 
+
 class QuotationHistorySerializer(serializers.ModelSerializer):
-    action_by = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), default=serializers.CurrentUserDefault())
+    action_by = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        default=serializers.CurrentUserDefault()
+    )
 
     class Meta:
         model = QuotationHistory
         fields = ['id', 'status', 'timestamp', 'action_by']
 
-class QuotationRevisionSerializer(serializers.ModelSerializer):
-    created_by = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), default=serializers.CurrentUserDefault())
 
-    class Meta:
-        model = QuotationRevision
-        fields = ['id', 'revision_number', 'date', 'created_by', 'status', 'comment', 'revise_history']
+
+
 
 class QuotationSerializer(serializers.ModelSerializer):
     items = QuotationItemSerializer(many=True, read_only=True)
     attachments = QuotationAttachmentSerializer(many=True, read_only=True)
     comments = QuotationCommentSerializer(many=True, read_only=True)
     history = QuotationHistorySerializer(many=True, read_only=True)
-    revisions = QuotationRevisionSerializer(many=True, read_only=True)
+    
     customer_name = serializers.PrimaryKeyRelatedField(queryset=Customer.objects.all())
-    sales_rep = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(role__role='Sales Representative'),allow_null=True)
+    sales_rep = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role__role='Sales Representative'),
+        allow_null=True
+    )
+
     grand_total = serializers.SerializerMethodField()
 
     class Meta:
         model = Quotation
         fields = [
-            'id', 'quotation_id', 'quotation_type', 'quotation_date', 'expiry_date', 'customer_name',
-            'customer_po_referance', 'sales_rep', 'currency', 'payment_terms', 'expected_delivery',
-            'status', 'revise_count', 'globalDiscount', 'shippingCharges', 'created_at', 'items',
-            'attachments', 'comments', 'history', 'revisions', 'grand_total'
+            'id', 'quotation_id', 'quotation_type', 'quotation_date', 'expiry_date',
+            'customer_name', 'customer_po_referance', 'sales_rep', 'currency',
+            'payment_terms', 'expected_delivery', 'status', 'revise_count',
+            'globalDiscount', 'shippingCharges', 'created_at',
+            'items', 'attachments', 'comments', 'history', 
+            'grand_total'
         ]
 
     def get_grand_total(self, obj):
@@ -137,20 +160,28 @@ class QuotationSerializer(serializers.ModelSerializer):
         discount_amount = subtotal * (obj.globalDiscount / 100)
         return round(subtotal - discount_amount + obj.shippingCharges, 2)
 
+
 class QuotationCreateSerializer(serializers.ModelSerializer):
     items = QuotationItemSerializer(many=True, required=False)
     attachments = QuotationAttachmentSerializer(many=True, required=False)
     comments = QuotationCommentSerializer(many=True, required=False)
     history = QuotationHistorySerializer(many=True, required=False)
-    revisions = QuotationRevisionSerializer(many=True, required=False)
+    
+
     customer_name = serializers.PrimaryKeyRelatedField(queryset=Customer.objects.all())
-    sales_rep = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(role__role='Sales Representative'),allow_null=True)
+    sales_rep = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role__role='Sales Representative'),
+        allow_null=True
+    )
+
     class Meta:
         model = Quotation
         fields = [
-            'quotation_type', 'quotation_date', 'expiry_date', 'customer_name', 'customer_po_referance',
-            'sales_rep', 'currency', 'payment_terms', 'expected_delivery', 'status', 'revise_count',
-            'globalDiscount', 'shippingCharges', 'items', 'attachments', 'comments', 'history', 'revisions'
+            'quotation_type', 'quotation_date', 'expiry_date', 'customer_name',
+            'customer_po_referance', 'sales_rep', 'currency',
+            'payment_terms', 'expected_delivery', 'status',
+             'globalDiscount', 'shippingCharges',
+            'items', 'attachments', 'comments', 'history'
         ]
 
     def create(self, validated_data):
@@ -158,54 +189,105 @@ class QuotationCreateSerializer(serializers.ModelSerializer):
         attachments_data = validated_data.pop('attachments', [])
         comments_data = validated_data.pop('comments', [])
         history_data = validated_data.pop('history', [])
-        revisions_data = validated_data.pop('revisions', [])
-        quotation = Quotation.objects.create(quotation_id=self._generate_quotation_id(), user=self.context['request'].user, **validated_data)
+       
+        quotation = Quotation.objects.create(
+            quotation_id=self._generate_quotation_id(),
+            user=self.context['request'].user,
+            **validated_data
+        )
+
         for item_data in items_data:
             QuotationItem.objects.create(quotation=quotation, **item_data)
+
         for attachment_data in attachments_data:
             QuotationAttachment.objects.create(quotation=quotation, **attachment_data)
+
         for comment_data in comments_data:
             QuotationComment.objects.create(quotation=quotation, **comment_data)
-        for history_data in history_data:
-            QuotationHistory.objects.create(quotation=quotation, **history_data)
-        for revision_data in revisions_data:
-            QuotationRevision.objects.create(quotation=quotation, **revision_data)
+
+        for history_entry in history_data:
+            QuotationHistory.objects.create(quotation=quotation, **history_entry)
+
         return quotation
 
     def _generate_quotation_id(self):
         last_quotation = Quotation.objects.order_by('-id').first()
-        if last_quotation:
-            last_id = int(last_quotation.quotation_id.replace('QUO', '')) + 1
-        else:
-            last_id = 1
+        last_id = int(last_quotation.quotation_id.replace('QUO', '')) + 1 if last_quotation else 1
         return f'QUO{last_id:03d}'
-    
+
 
 from rest_framework import serializers
 from .models import SalesOrder, SalesOrderItem, SalesOrderComment, SalesOrderHistory, DeliveryNote, DeliveryNoteItem, DeliveryNoteCustomerAcknowledgement, DeliveryNoteAttachment, DeliveryNoteRemark, Invoice, InvoiceItem, InvoiceAttachment, InvoiceRemark, OrderSummary
-from masters.serializers import CustomerSerializer, ProductSerializer
+from masters.serializers import CustomerSerializer, ProductSerializer,TaxCodeSerializer
+from masters.models import TaxCode
 from purchase.serializers import SerialNumberSerializer
 
 # Existing SalesOrder serializers
 class SalesOrderItemSerializer(serializers.ModelSerializer):
-    product = ProductSerializer()
+    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
+    tax = serializers.PrimaryKeyRelatedField(queryset=TaxCode.objects.all(), allow_null=True)
+    uom = serializers.PrimaryKeyRelatedField(queryset=UOM.objects.all())
+    total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True) 
 
     class Meta:
         model = SalesOrderItem
-        fields = ['id', 'product', 'quantity', 'uom', 'unit_price', 'discount', 'total']
+        fields = ['product', 'quantity', 'uom', 'unit_price', 'discount', 'tax',"total"]
+
+    def validate_quantity(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Quantity must be greater than zero.")
+        return value
+
+    def validate_unit_price(self, value):
+        if value < 0:
+            raise serializers.ValidationError("Unit price cannot be negative.")
+        return value
+
+
+
+from django.db import transaction
 
 class SalesOrderCreateSerializer(serializers.ModelSerializer):
     customer = serializers.PrimaryKeyRelatedField(queryset=Customer.objects.all())
-    sales_rep = serializers.PrimaryKeyRelatedField(queryset=Candidate.objects.filter(designation__role="Sales Representative"),
-        allow_null=True)
+    sales_rep = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role__role='Sales Representative'),
+        allow_null=True
+    )
+    items = SalesOrderItemSerializer(many=True)
 
     class Meta:
         model = SalesOrder
-        fields = ['id', 'order_date', 'sales_rep', 'order_type', 'customer', 'payment_method', 'currency', 'due_date', 'terms_conditions', 'shipping_method', 'expected_delivery', 'tracking_number', 'internal_notes', 'customer_notes', 'global_discount', 'shipping_charges', 'status']
+        fields = [
+            'id', 'order_date', 'sales_rep', 'order_type', 'customer',
+            'payment_method', 'currency', 'due_date', 'terms_conditions',
+            'shipping_method', 'expected_delivery', 'tracking_number',
+            'internal_notes', 'customer_notes', 'global_discount',
+            'shipping_charges', 'status', 'items'
+        ]
+
+    def validate_items(self, items):
+        product_ids = [item['product'].id for item in items]
+        if len(product_ids) != len(set(product_ids)):
+            raise serializers.ValidationError("Duplicate products are not allowed in items.")
+        return items
+
+
+    @transaction.atomic  # 🔥 MAKES EVERYTHING SAFE
+    def create(self, validated_data):
+        items_data = validated_data.pop('items')
+
+        sales_order = SalesOrder.objects.create(**validated_data)
+
+        for item in items_data:
+            SalesOrderItem.objects.create(sales_order=sales_order, **item)
+
+        return sales_order
+
+
 
 class SalesOrderSerializer(serializers.ModelSerializer):
     customer = CustomerSerializer()
-    sales_rep = serializers.CharField(source='sales_rep.username')
+    sales_rep = serializers.CharField(source='sales_rep.first_name')
     items = SalesOrderItemSerializer(many=True, required=False)
     comments = serializers.SerializerMethodField()
     history = serializers.SerializerMethodField()

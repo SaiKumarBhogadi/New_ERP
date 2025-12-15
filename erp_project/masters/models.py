@@ -117,7 +117,7 @@ class Category(models.Model):
 
 class TaxCode(models.Model):
     name = models.CharField(max_length=100, unique=True)
-    percentage = models.FloatField()
+    percentage = models.DecimalField(max_digits=5, decimal_places=2)
     description = models.TextField(blank=True)
 
     def __str__(self):

@@ -129,7 +129,7 @@ class ResetPasswordView(APIView):
             return Response({'error': 'Invalid or expired token'}, status=status.HTTP_400_BAD_REQUEST)
 
 class ProfileView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated ]
 
     def get(self, request):
         serializer = CustomUserDetailSerializer(request.user)
@@ -161,7 +161,7 @@ class ProfileView(APIView):
 
 
 class OnboardingListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, RoleBasedPermission]
 
     def get(self, request, format=None):
         try:
@@ -204,7 +204,7 @@ class OnboardingListView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class OnboardingDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated , RoleBasedPermission]
 
     def get(self, request, pk):
         try:
@@ -319,7 +319,7 @@ class GovernmentHolidayView(APIView):
         return Response(serializer.data)
 
 class TaskListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated ]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
