@@ -75,11 +75,11 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'erp_backend.wsgi.application'
 
-# --- DATABASE CONFIGURATION (Pure MySQL/RDS) ---
-# This strictly reads from the .env.dev file
+# --- AWS RDS CONFIGURATION (MySQL) ---
+# This strictly connects to your RDS instance
 DATABASES = {
     'default': {
-        'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.mysql'),
+        'ENGINE': 'django.db.backends.mysql',
         'NAME': os.getenv('DB_NAME', 'erp_dev_db'),
         'USER': os.getenv('DB_USER', 'admin'),
         'PASSWORD': os.getenv('DB_PASSWORD', 'StacklyVasa'),
