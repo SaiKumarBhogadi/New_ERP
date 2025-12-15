@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        // Repository URLs (Changed ERP-Frontend to ERP_Frontend_Project based on latest logs)
+        // Repository URLs
         BACKEND_REPO = "https://github.com/vasavamshi-vv/New_ERP_Backend.git"
         FRONTEND_REPO = "https://github.com/vasavamshi-vv/ERP_Frontend_Project.git"
 
@@ -18,20 +18,22 @@ pipeline {
     }
 
     stages {
-
+        
+        // --- THIS STAGE IS CORRECTED FOR VARIABLE RESOLUTION ---
         stage('Checkout Both Repos') {
             steps {
                 echo "📥 Cloning backend & frontend..."
 
-                dir("\${BACKEND_DIR}") {
-                    git branch: 'dev', url: "\${BACKEND_REPO}"
+                // CORRECTED: Using literal directory names and env.VARIABLE syntax
+                dir("erp-backend") { 
+                    git branch: 'dev', url: env.BACKEND_REPO
                 }
-
-                dir("\${FRONTEND_DIR}") {
-                    git branch: 'dev', url: "\${FRONTEND_REPO}"
+                dir("erp-frontend") { 
+                    git branch: 'dev', url: env.FRONTEND_REPO
                 }
             }
         }
+        // --- END OF CORRECTION ---
 
         stage('Build Backend Docker Image') {
             steps {
@@ -50,9 +52,7 @@ pipeline {
             steps {
                 script {
                     echo "🚀 Deploying backend container (Connecting to RDS)..."
-
                     sh "sudo docker rm -f \${BACKEND_CONTAINER} || true"
-
                     sh """
                         sudo docker run -d \\
                             --name \${BACKEND_CONTAINER} \\
@@ -83,9 +83,7 @@ pipeline {
             steps {
                 script {
                     echo "🚀 Deploying frontend container (on Port 80)..."
-
                     sh "sudo docker rm -f \${FRONTEND_CONTAINER} || true"
-
                     sh """
                         sudo docker run -d \\
                             --name \${FRONTEND_CONTAINER} \\
@@ -102,17 +100,11 @@ pipeline {
             steps {
                 sh """
                     echo "🧪 Running smoke tests..."
-                    sleep 15 # Increased delay for RDS connection stability
-
-                    # Backend test
-                    curl -sSf http://localhost:8000/api/login/ > /dev/null \\
-                        && echo "✔ Backend OK" \\
-                        || (echo "❌ Backend Down" && exit 1)
-
-                    # Frontend test
-                    curl -sSf http://localhost:80 > /dev/null \\
-                        && echo "✔ Frontend OK" \\
-                        || (echo "❌ Frontend Down" && exit 1)
+                    sleep 15
+                    # Test Backend (Should succeed with RDS fix)
+                    curl -sSf http://localhost:8000/api/login/ > /dev/null && echo "✔ Backend OK" || (echo "❌ Backend Down" && exit 1)
+                    # Test Frontend
+                    curl -sSf http://localhost:80 > /dev/null && echo "✔ Frontend OK" || (echo "❌ Frontend Down" && exit 1)
                 """
             }
         }
