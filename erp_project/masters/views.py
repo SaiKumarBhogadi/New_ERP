@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.utils.crypto import get_random_string
 import pandas as pd
 from django.db.models import Count
+from django.db.models import Q
 
 import logging
 from .models import (
@@ -38,18 +39,37 @@ class ManageUsersView(APIView):
     permission_classes = [permissions.IsAuthenticated, RoleBasedPermission]
 
     def get(self, request):
+        # Pagination
         page = int(request.query_params.get('page', 1))
         per_page = int(request.query_params.get('per_page', 10))
-        users = CustomUser.objects.all().order_by('id')
+
+        # Search
+        search = request.query_params.get('search', '').strip()
+
+        users = CustomUser.objects.select_related('role').order_by('id')
+
+        # 🔍 GLOBAL SEARCH (PARTIAL + CASE INSENSITIVE)
+        if search:
+            users = users.filter(
+                Q(email__icontains=search) |
+                Q(first_name__icontains=search) |
+                Q(last_name__icontains=search) |
+                Q(employee_id__icontains=search) |
+                Q(contact_number__icontains=search) |
+                Q(role__name__icontains=search)
+            )
+
         paginator = Paginator(users, per_page)
         page_obj = paginator.get_page(page)
+
         serializer = CustomUserDetailSerializer(page_obj, many=True)
+
         return Response({
             'users': serializer.data,
             'total_pages': paginator.num_pages,
             'current_page': page,
             'total_entries': users.count(),
-        }, status=status.HTTP_200_OK) 
+        }, status=status.HTTP_200_OK)
 
     def post(self, request):
         if not request.user.is_superuser:
