@@ -187,15 +187,25 @@ class DepartmentListView(APIView):
         page = int(request.query_params.get('page', 1))
         per_page = int(request.query_params.get('per_page', 5))
         branch_id = request.query_params.get('branch')
+        search = request.query_params.get('search')  # 👈 NEW
         dropdown = request.query_params.get('dropdown', 'false').lower() == 'true'
         include_roles = request.query_params.get('include_roles', 'false').lower() == 'true'
 
         departments = Department.objects.all()
+
+        # ✅ Branch filter
         if branch_id:
             try:
                 departments = departments.filter(branch_id=branch_id)
             except ValueError:
                 return Response({'error': 'Invalid branch ID'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 🔍 Search by code OR department name
+        if search:
+            departments = departments.filter(
+                Q(code__icontains=search) |
+                Q(department_name__icontains=search)
+            )
 
         paginator = PageNumberPagination()
         paginator.page_size = per_page
@@ -204,7 +214,11 @@ class DepartmentListView(APIView):
         if dropdown:
             serializer = DepartmentDropdownSerializer(page_obj, many=True)
         else:
-            serializer = DepartmentSerializer(page_obj, many=True, context={'include_roles': include_roles})
+            serializer = DepartmentSerializer(
+                page_obj,
+                many=True,
+                context={'include_roles': include_roles}
+            )
 
         return Response({
             'departments': serializer.data,
@@ -212,6 +226,8 @@ class DepartmentListView(APIView):
             'current_page': page,
             'total_entries': departments.count(),
         }, status=status.HTTP_200_OK)
+
+
 
     def post(self, request):
         serializer = DepartmentCreateSerializer(data=request.data)

@@ -29,12 +29,37 @@ class DepartmentSerializer(serializers.ModelSerializer):
             return RoleSerializer(obj.roles.all(), many=True).data
         return []
 
+import re
+from rest_framework import serializers
+
 class DepartmentCreateSerializer(serializers.ModelSerializer):
     branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all())
 
     class Meta:
         model = Department
         fields = ['id', 'code', 'department_name', 'branch', 'description']
+
+    def validate_department_name(self, value):
+        if not re.match(r'^[A-Za-z ]+$', value):
+            raise serializers.ValidationError(
+                "Department name can contain only letters and spaces."
+            )
+        return value
+
+    def validate_code(self, value):
+        if not re.match(r'^[A-Za-z0-9]+$', value):
+            raise serializers.ValidationError(
+                "Department code can contain only letters and numbers."
+            )
+        return value
+    
+    def validate_description(self, value):
+        if value and len(value) > 500:
+            raise serializers.ValidationError(
+                "Description cannot exceed 500 characters."
+            )
+        return value
+
 
 class RoleSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source='department.department_name', read_only=True)
@@ -43,6 +68,21 @@ class RoleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Role
         fields = ['id', 'role', 'description', 'permissions', 'department_name', 'branch_name']
+
+    def validate_role(self, value):
+        # Only allow letters, numbers, and spaces
+        if not re.match(r'^[A-Za-z0-9 ]+$', value):
+            raise serializers.ValidationError(
+                "Role name can contain only letters, numbers, and spaces."
+            )
+        return value
+    
+    def validate_description(self, value):
+        if value and len(value) > 500:
+            raise serializers.ValidationError(
+                "Description cannot exceed 500 characters."
+            )
+        return value
 
 class RoleUpdateSerializer(serializers.ModelSerializer):
     department = serializers.PrimaryKeyRelatedField(queryset=Department.objects.all())
@@ -61,6 +101,20 @@ class RoleUpdateSerializer(serializers.ModelSerializer):
             return {}
         if not isinstance(value, dict):
             raise serializers.ValidationError("Permissions must be a valid JSON object.")
+        return value
+    
+    def validate_role(self, value):
+        if not re.match(r'^[A-Za-z0-9 ]+$', value):
+            raise serializers.ValidationError(
+                "Role name can contain only letters, numbers, and spaces."
+            )
+        return value
+    
+    def validate_description(self, value):
+        if value and len(value) > 500:
+            raise serializers.ValidationError(
+                "Description cannot exceed 500 characters."
+            )
         return value
 
 from rest_framework import serializers
