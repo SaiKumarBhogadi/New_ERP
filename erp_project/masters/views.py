@@ -55,8 +55,9 @@ class ManageUsersView(APIView):
                 Q(first_name__icontains=search) |
                 Q(last_name__icontains=search) |
                 Q(employee_id__icontains=search) |
-                Q(contact_number__icontains=search) |
-                Q(role__name__icontains=search)
+                Q(role__role__icontains=search) |
+                Q(department__department_name__icontains=search) |
+                Q(branch__name__icontains=search)
             )
 
         paginator = Paginator(users, per_page)
