@@ -12,9 +12,7 @@ def generate_credit_note_id():
     last_cn = CreditNote.objects.order_by('-id').first()
     return f'CRN-{str(last_cn.id + 1).zfill(4) if last_cn else "0001"}' if last_cn else "CRN-0001"
 
-def generate_debit_note_id():
-    last_dn = DebitNote.objects.order_by('-id').first()
-    return f'DBN-{str(last_dn.id + 1).zfill(4) if last_dn else "0001"}' if last_dn else "DBN-0001"
+
 
 class CreditNoteAttachment(models.Model):
     credit_note = models.ForeignKey('CreditNote', on_delete=models.CASCADE, related_name='attachments')
@@ -87,6 +85,11 @@ class CreditNotePaymentRefund(models.Model):
             else:
                 self.editable = False
         super().save(*args, **kwargs)
+
+
+def generate_debit_note_id():
+    last_dn = DebitNote.objects.order_by('-id').first()
+    return f'DBN-{str(last_dn.id + 1).zfill(4) if last_dn else "0001"}' if last_dn else "DBN-0001"
 
 class DebitNoteAttachment(models.Model):
     debit_note = models.ForeignKey('DebitNote', on_delete=models.CASCADE, related_name='attachments')
