@@ -191,7 +191,7 @@ class DepartmentListView(APIView):
         branch_id = request.query_params.get('branch')
         search = request.query_params.get('search')  # 👈 NEW
         dropdown = request.query_params.get('dropdown', 'false').lower() == 'true'
-        include_roles = request.query_params.get('include_roles', 'false').lower() == 'true'
+        include_roles = request.query_params.get('include_roles', 'true').lower() == 'true'
 
         departments = Department.objects.all()
 
