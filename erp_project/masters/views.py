@@ -181,6 +181,7 @@ class BranchDetailView(APIView):
         except Branch.DoesNotExist:
             return Response({'error': 'Branch not found'}, status=status.HTTP_404_NOT_FOUND)
 
+from .serializers import DepartmentCreateWithRolesSerializer , DepartmentUpdateWithRolesSerializer
 class DepartmentListView(APIView):
     permission_classes = [permissions.IsAuthenticated, RoleBasedPermission]
 
@@ -231,10 +232,12 @@ class DepartmentListView(APIView):
 
 
     def post(self, request):
-        serializer = DepartmentCreateSerializer(data=request.data)
+        serializer = DepartmentCreateWithRolesSerializer(data=request.data)
         if serializer.is_valid():
             department = serializer.save()
-            return Response(DepartmentSerializer(department).data, status=status.HTTP_201_CREATED)
+            # Return full department with roles included
+            full_serializer = DepartmentSerializer(department, context={'include_roles': True})
+            return Response(full_serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class DepartmentDetailView(APIView):
@@ -251,10 +254,12 @@ class DepartmentDetailView(APIView):
     def put(self, request, pk):
         try:
             department = Department.objects.get(pk=pk)
-            serializer = DepartmentCreateSerializer(department, data=request.data, partial=True)
+            serializer = DepartmentUpdateWithRolesSerializer(department, data=request.data, partial=True)
             if serializer.is_valid():
                 department = serializer.save()
-                return Response(DepartmentSerializer(department).data, status=status.HTTP_200_OK)
+                # Always return full object with roles
+                full_serializer = DepartmentSerializer(department, context={'include_roles': True})
+                return Response(full_serializer.data, status=status.HTTP_200_OK)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         except Department.DoesNotExist:
             return Response({'error': 'Department not found'}, status=status.HTTP_404_NOT_FOUND)

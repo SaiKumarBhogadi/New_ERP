@@ -3,6 +3,7 @@ from .models import CustomUser, Branch, Department, Role, Category, TaxCode, UOM
 from core.models import Candidate
 import re
 import logging
+from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,132 @@ class RoleUpdateSerializer(serializers.ModelSerializer):
                 "Description cannot exceed 500 characters."
             )
         return value
+    
+# Nested role serializer – no department/branch fields (they come from parent)
+class NestedRoleCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Role
+        fields = ['role', 'description', 'permissions']
+
+    def validate_role(self, value):
+        if not re.match(r'^[A-Za-z0-9 ]+$', value):
+            raise serializers.ValidationError("Role name can contain only letters, numbers, and spaces.")
+        return value
+
+    def validate_description(self, value):
+        if value and len(value) > 500:
+            raise serializers.ValidationError("Description cannot exceed 500 characters.")
+        return value
+
+
+# Updated department serializer that accepts nested roles
+class DepartmentCreateWithRolesSerializer(serializers.ModelSerializer):
+    branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all())
+    roles = NestedRoleCreateSerializer(many=True, required=False, allow_empty=True)
+
+    class Meta:
+        model = Department
+        fields = ['code', 'department_name', 'branch', 'description', 'roles']
+
+    def validate_department_name(self, value):
+        if not re.match(r'^[A-Za-z ]+$', value):
+            raise serializers.ValidationError("Department name can contain only letters and spaces.")
+        return value
+
+    def validate_code(self, value):
+        if not re.match(r'^[A-Za-z0-9]+$', value):
+            raise serializers.ValidationError("Department code can contain only letters and numbers.")
+        return value
+
+    def validate_description(self, value):
+        if value and len(value) > 500:
+            raise serializers.ValidationError("Description cannot exceed 500 characters.")
+        return value
+
+    @transaction.atomic
+    def create(self, validated_data):
+        roles_data = validated_data.pop('roles', [])
+        department = Department.objects.create(**validated_data)
+
+        for role_data in roles_data:
+            Role.objects.create(
+                department=department,
+                branch=department.branch,
+                **role_data
+            )
+
+        return department
+    
+# serializers.py — add this
+
+class NestedRoleUpdateSerializer(serializers.ModelSerializer):
+    # id is optional and ignored (we recreate anyway)
+    id = serializers.IntegerField(required=False, allow_null=True)
+
+    class Meta:
+        model = Role
+        fields = ['id', 'role', 'description', 'permissions']
+        extra_kwargs = {'id': {'read_only': False, 'required': False}}
+
+    def validate_role(self, value):
+        if not re.match(r'^[A-Za-z0-9 ]+$', value):
+            raise serializers.ValidationError("Role name can contain only letters, numbers, and spaces.")
+        return value
+
+    def validate_description(self, value):
+        if value and len(value) > 500:
+            raise serializers.ValidationError("Description cannot exceed 500 characters.")
+        return value
+
+
+class DepartmentUpdateWithRolesSerializer(serializers.ModelSerializer):
+    branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all(), required=False)
+    roles = NestedRoleUpdateSerializer(many=True, required=False, allow_empty=True)
+
+    class Meta:
+        model = Department
+        fields = ['code', 'department_name', 'branch', 'description', 'roles']
+
+    def validate_department_name(self, value):
+        if not re.match(r'^[A-Za-z ]+$', value):
+            raise serializers.ValidationError("Department name can contain only letters and spaces.")
+        return value
+
+    def validate_code(self, value):
+        if not re.match(r'^[A-Za-z0-9]+$', value):
+            raise serializers.ValidationError("Department code can contain only letters and numbers.")
+        return value
+
+    def validate_description(self, value):
+        if value and len(value) > 500:
+            raise serializers.ValidationError("Description cannot exceed 500 characters.")
+        return value
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        roles_data = validated_data.pop('roles', None)
+
+        # Update department fields if provided (partial update)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        # If roles key was sent → full replacement
+        if roles_data is not None:
+            # Delete existing roles
+            instance.roles.all().delete()
+
+            # Create new ones from payload
+            for role_data in roles_data:
+                # Ignore id – we always create fresh
+                role_data.pop('id', None)
+                Role.objects.create(
+                    department=instance,
+                    branch=instance.branch,
+                    **role_data
+                )
+
+        return instance
 
 from rest_framework import serializers
 from .models import CustomUser, Branch, Department, Role
