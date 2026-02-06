@@ -1,128 +1,127 @@
-# core/permissions.py (or your preferred location)
+# core/permissions.py
 
 from rest_framework import permissions
 
+
 class RoleBasedPermission(permissions.BasePermission):
     """
-    Role-based permission using CustomUser.role.permissions JSONField
-    Superusers have full access
+    Role-Based Access Control (RBAC) for Stackly ERP
+
+    - Django superuser (created via createsuperuser) → full access (bypass everything)
+    - Role named 'Admin' → full access to ALL modules/views (listed or unlisted)
+    - All other roles → strict permission check based on role.permissions JSONField
+    - Unknown/unlisted views → denied for normal users (safe default)
     """
 
-    # Map view class names to permission categories
+    # View name → permission category mapping
+    # Only listed here for normal users. Admin & superuser bypass this entirely.
     VIEW_TO_CATEGORY = {
-        # Masters / Setup
-        'DepartmentListView': 'masters',
-        'DepartmentDetailView': 'masters',
-        'RoleView': 'masters',
-        'RoleDetailView': 'masters',
-        'BranchListView': 'masters',
+        # Masters
+        'BranchListCreateView': 'masters',
         'BranchDetailView': 'masters',
+        'DepartmentListView': 'masters',
+        'DepartmentCreateView': 'masters',
+        'DepartmentDetailView': 'masters',
 
-        # Users Management
-        'ManageUsersView': 'users',
+        # Users
+        'ManageUsersListCreateView': 'users',
         'ManageUserDetailView': 'users',
 
-        # Onboarding / HR
+        # Inventory Masters
+        'CategoryListCreateView': 'inventory',
+        'CategoryDetailView': 'inventory',
+        'TaxCodeListCreateView': 'inventory',
+        'TaxCodeDetailView': 'inventory',
+        'UOMListCreateView': 'inventory',
+        'UOMDetailView': 'inventory',
+        'WarehouseListCreateView': 'inventory',
+        'WarehouseDetailView': 'inventory',
+        'SizeListCreateView': 'inventory',
+        'SizeDetailView': 'inventory',
+        'ColorListCreateView': 'inventory',
+        'ColorDetailView': 'inventory',
+        'ProductSupplierListCreateView': 'inventory',
+        'ProductSupplierDetailView': 'inventory',
+        'ProductListCreateView': 'inventory',
+        'ProductDetailView': 'inventory',
+
+        # Suppliers / Customers
+        'SupplierListCreateView': 'supplier',
+        'SupplierDetailView': 'supplier',
+        'CustomerListCreateView': 'customer',
+        'CustomerDetailView': 'customer',
+
+        # HR / Onboarding
         'OnboardingListView': 'hr',
         'OnboardingDetailView': 'hr',
 
-        # Inventory / Masters
-        'ProductListView': 'inventory',
-        'ProductDetailView': 'inventory',
-        'ProductImportView': 'inventory',
-        'CategoryListView': 'inventory',
-        'CategoryDetailView': 'inventory',
-        'TaxCodeListView': 'inventory',
-        'TaxCodeDetailView': 'inventory',
-        'UOMListView': 'inventory',
-        'UOMDetailView': 'inventory',
-        'WarehouseListView': 'inventory',
-        'WarehouseDetailView': 'inventory',
-        'SizeListView': 'inventory',
-        'SizeDetailView': 'inventory',
-        'ColorListView': 'inventory',
-        'ColorDetailView': 'inventory',
-        'ProductSupplierListView': 'inventory',
-        'ProductSupplierDetailView': 'inventory',
-
-        #  Supplier
-        'SupplierListView': 'supplier',
-        'SupplierDetailView': 'supplier',
+        # Task & Projects
+        'TaskListCreateView': 'task',
+        'TaskDetailView': 'task',
+        'ProjectListCreateView': 'project',
+        'ProjectDetailView': 'project',
 
         # Attendance
         'AttendanceView': 'attendance',
         'CheckInOutView': 'attendance',
 
-        # Task Management
-        'TaskListView': 'task',
-        'TaskDetailView': 'task',
-        'TaskSummaryView': 'task',
-
-        # Dashboard
+        # Dashboard & Profile
         'DashboardCombinedView': 'dashboard',
-
-        # Profile
         'ProfileView': 'profile',
 
-        # Auth Views - AllowAny already set, but safe fallback
-        'RegisterView': 'auth',
-        'LoginView': 'auth',
-        'LogoutView': 'auth',
-        'ForgotPasswordView': 'auth',
-        'ResetPasswordView': 'auth',
+        # Reports
+        'ReportListView': 'reports',
+        'ReportDetailView': 'reports',
     }
 
     def has_permission(self, request, view):
-        # Superuser → full access
+        # 1. Django superuser (created via createsuperuser command) → full access
         if request.user.is_superuser:
             return True
 
-        # Public endpoints (AllowAny views)
-        public_views = ['RegisterView', 'LoginView', 'ForgotPasswordView', 'ResetPasswordView']
-        if view.__class__.__name__ in public_views:
-            return True
-
-        # Must be authenticated
+        # 2. Must be authenticated
         if not request.user.is_authenticated:
             return False
 
-        # Must have a role
-        try:
-            role = request.user.role
-            if not role:
-                return False
-            permissions_dict = role.permissions  # JSONField
-        except AttributeError:
+        # 3. Must have a role assigned
+        if not hasattr(request.user, 'role') or not request.user.role:
             return False
 
-        # Get category from view name
+        role = request.user.role
+        role_name = role.role.lower().strip()  # Normalize for matching
+
+        # 4. Special 'Admin' role → full access (bypass all checks, listed or unlisted views)
+        if role_name == 'admin':
+            return True
+
+        # 5. Normal roles → apply strict JSON-based permission check
+        permissions_dict = role.permissions or {}
+
         view_name = view.__class__.__name__
         category = self.VIEW_TO_CATEGORY.get(view_name)
 
+        # If view is NOT listed in mapping → deny access (safe default for normal users)
         if not category:
-            return False  # Unknown view → deny
+            return False
 
-        # Get category permissions
+        # Get permissions for this category from JSON
         cat_perms = permissions_dict.get(category, {})
 
-        # SAFE METHODS (GET, HEAD, OPTIONS)
+        # SAFE METHODS (GET, HEAD, OPTIONS) → require 'view' or 'full_access'
         if request.method in permissions.SAFE_METHODS:
-            return cat_perms.get('view', False)
+            return cat_perms.get('view', False) or cat_perms.get('full_access', False)
 
-        # CREATE (POST on ListView)
-        elif request.method == 'POST':
-            if view_name.endswith('ListView'):
-                return cat_perms.get('create', False)
-            else:
-                # Actions like submit, comment, upload → usually need edit
-                return cat_perms.get('edit', False)
+        # CREATE (POST)
+        if request.method == 'POST':
+            return cat_perms.get('create', False) or cat_perms.get('full_access', False)
 
         # UPDATE (PUT/PATCH)
-        elif request.method in ['PUT', 'PATCH']:
-            return cat_perms.get('edit', False)
+        if request.method in ['PUT', 'PATCH']:
+            return cat_perms.get('edit', False) or cat_perms.get('full_access', False)
 
         # DELETE
-        elif request.method == 'DELETE':
-            return cat_perms.get('delete', False)
+        if request.method == 'DELETE':
+            return cat_perms.get('delete', False) or cat_perms.get('full_access', False)
 
+        # Default deny
         return False

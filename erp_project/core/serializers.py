@@ -5,6 +5,13 @@ import re
 import logging
 
 logger = logging.getLogger(__name__)
+# core/serializers.py (auth-related serializers)
+
+from rest_framework import serializers
+from django.contrib.auth import authenticate
+from masters.models import CustomUser
+from masters.serializers import CustomUserDetailSerializer
+
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -17,16 +24,28 @@ class LoginSerializer(serializers.Serializer):
 
         if not email or not password:
             raise serializers.ValidationError("Email and password are required.")
-        
+
+        # IMPORTANT: Authenticate the user
+        user = authenticate(username=email, password=password)
+
+        if user is None:
+            raise serializers.ValidationError("Invalid email or password.")
+
+        if not user.is_active:
+            raise serializers.ValidationError("This account is disabled.")
+
+        # Add authenticated user to validated_data
+        data['user'] = user
         return data
 
 class ForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
     def validate_email(self, value):
-        if not CustomUser.objects.filter(email=value).exists():
-            raise serializers.ValidationError("No user found with this email address.")
+        if not CustomUser.objects.filter(email=value, is_active=True).exists():
+            raise serializers.ValidationError("No active user found with this email.")
         return value
+
 
 class ResetPasswordSerializer(serializers.Serializer):
     new_password = serializers.CharField(write_only=True, min_length=8)
@@ -37,46 +56,55 @@ class ResetPasswordSerializer(serializers.Serializer):
             raise serializers.ValidationError("Passwords do not match.")
         return data
 
-class ProfileChangePasswordSerializer(serializers.Serializer):
-    password = serializers.CharField(write_only=True, min_length=8)
-    confirm_password = serializers.CharField(write_only=True, min_length=8)
 
-    def validate(self, data):
-        if data['password'] != data['confirm_password']:
-            raise serializers.ValidationError("Passwords do not match.")
-        return data
-
-    def update(self, instance, validated_data):
-        instance.set_password(validated_data['password'])
-        instance.save()
-        return instance
-    
 class ProfileUpdateSerializer(serializers.ModelSerializer):
-    # Fields that regular users can update
     first_name = serializers.CharField(required=False)
     last_name = serializers.CharField(required=False, allow_blank=True)
     contact_number = serializers.CharField(max_length=15, allow_blank=True, allow_null=True)
-    profile_pic = serializers.ImageField(allow_empty_file=True, required=False)
+    profile_pic = serializers.ImageField(allow_empty_file=True, required=False, allow_null=True,)
 
     class Meta:
         model = CustomUser
         fields = ['first_name', 'last_name', 'contact_number', 'profile_pic']
 
+    def validate_contact_number(self, value):
+        if value:
+            cleaned = value.replace("+", "").replace("-", "").replace(" ", "")
+            if not cleaned.isdigit():
+                raise serializers.ValidationError("Contact number must contain only digits, +, -, or spaces.")
+        return value
+
     def validate(self, data):
-        # Check for restricted fields in the incoming data
-        restricted_fields = ['branch', 'department', 'role', 'employee_id', 'email', 'available_branches', 'reporting_to']
-        received_fields = set(self.initial_data.keys())
-        invalid_fields = received_fields.intersection(restricted_fields)
-        if invalid_fields:
-            raise serializers.ValidationError({
-                'error': f"You are not allowed to change the following fields: {', '.join(invalid_fields)}"
-            })
+        # Block restricted fields even if sent by mistake
+        restricted = {'branch', 'department', 'role', 'employee_id', 'email', 'available_branches', 'reporting_to'}
+        received = set(self.initial_data.keys())
+        invalid = received & restricted
+        if invalid:
+            raise serializers.ValidationError(f"Cannot update: {', '.join(invalid)}")
         return data
 
-    def validate_contact_number(self, value):
-        if value and not value.replace("+", "").replace("-", "").replace(" ", "").isdigit():
-            raise serializers.ValidationError("Contact number must contain only digits, +, -, or spaces.")
+class ProfileChangePasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True, required=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate_current_password(self, value):
+        # Access bound instance from context (set when serializer is initialized with instance)
+        user = self.instance
+        if not user.check_password(value):
+            raise serializers.ValidationError("Current password is incorrect.")
         return value
+
+    def validate(self, data):
+        if data['new_password'] != data['confirm_password']:
+            raise serializers.ValidationError({"confirm_password": "New passwords do not match."})
+        return data
+
+    def update(self, instance, validated_data):
+        # instance is already bound (from ProfileView)
+        instance.set_password(validated_data['new_password'])
+        instance.save(update_fields=['password'])  # efficient — only update password
+        return instance
 
 class CandidateDocumentSerializer(serializers.ModelSerializer):
     file = serializers.FileField()

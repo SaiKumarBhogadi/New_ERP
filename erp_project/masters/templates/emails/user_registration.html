@@ -1,28 +1,58 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Welcome to Our Site</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to Stackly ERP</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background-color: #f4f7fa; margin: 0; padding: 0; color: #333; }
+    .container { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+    .header { background: linear-gradient(135deg, #4a90e2, #357abd); color: white; padding: 40px 30px; text-align: center; }
+    .header h1 { margin: 0; font-size: 28px; }
+    .content { padding: 40px 30px; line-height: 1.7; font-size: 16px; }
+    .highlight { background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center; }
+    .credential { font-weight: bold; color: #2c5282; }
+    .button { display: inline-block; background: #4a90e2; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; margin: 20px 0; }
+    .footer { background: #f1f5f9; padding: 20px; text-align: center; font-size: 13px; color: #64748b; border-top: 1px solid #e2e8f0; }
+    @media (max-width: 600px) { .content, .header { padding: 30px 20px; } }
+  </style>
 </head>
 <body>
-    <p>Hello {{ first_name }},</p>
+  <div class="container">
+    <div class="header">
+      <h1>Welcome to Stackly ERP!</h1>
+    </div>
 
-    <p>Your account has been successfully created on <strong>{{ site_name }}</strong>.</p>
+    <div class="content">
+      <p>Hi <strong>{{ first_name|default:"User" }}</strong>,</p>
+      
+      <p>Your account has been successfully created by an administrator.</p>
+      
+      <div class="highlight">
+        <p><strong>Your Login Credentials:</strong></p>
+        <p>Email: <span class="credential">{{ email }}</span></p>
+        <p>Temporary Password: <span class="credential">{{ password }}</span></p>
+      </div>
 
-    <p><strong>Login Details:</strong></p>
-    <ul>
-        <li>Email: {{ email }}</li>
-        <li>Temporary Password: {{ password }}</li>
-    </ul>
+      <p>Please log in immediately at:</p>
+      <p style="text-align: center;">
+        <a href="{{ site_link }}" class="button" style="color: white;">Log in to Stackly ERP</a>
+      </p>
 
-    <p>Please follow these steps to get started:</p>
-    <ol>
-        <li>Go to our site: <a href="{{ site_link }}">{{ site_link }}</a></li>
-        <li>Login using the above credentials.</li>
-        <li>Immediately change your password for security by visiting your profile page.</li>
-    </ol>
+      <p><strong>Important:</strong> For security, change your password right after your first login.</p>
+      
+      <p>If you have any questions or didn't expect this email, contact your system administrator.</p>
 
-    <p>Thank you,<br>
-    The {{ site_name }} Team</p>
+      <p>Welcome aboard — we're excited to have you!</p>
+      
+      <p>Best regards,<br>
+      <strong>Stackly ERP Team</strong></p>
+    </div>
+
+    <div class="footer">
+      <p>Hyderabad, Telangana, India | support@stacklyerp.com</p>
+      <p>&copy; {{ 'now'|date:"Y" }} Stackly ERP. All rights reserved.</p>
+    </div>
+  </div>
 </body>
 </html>

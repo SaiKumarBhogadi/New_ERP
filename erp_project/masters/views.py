@@ -1,56 +1,81 @@
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status, permissions
-from rest_framework.pagination import PageNumberPagination
-from django.core.paginator import Paginator
-from django.contrib.auth import authenticate
-from rest_framework.authtoken.models import Token
-from django.core.mail import send_mail
+import logging
+
 from django.conf import settings
+from django.db import transaction
+from django.db.models import Q, Count
 from django.utils import timezone
 from django.utils.crypto import get_random_string
-import pandas as pd
-from django.db.models import Count
-from django.db.models import Q
+from django.core.mail import EmailMessage, send_mail
+from django.template.loader import render_to_string
 
-import logging
+from rest_framework import generics, status, permissions
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.views import APIView
+from rest_framework.authtoken.models import Token
+
+from django.contrib.auth import authenticate
+
+from core.permissions import RoleBasedPermission
+from .models import Customer
+from .serializers import CustomerSerializer
+import pandas as pd
+
+
 from .models import (
     CustomUser, Branch, Department, Role, Category, TaxCode, UOM, Warehouse,
-    Size, Color, Supplier, Product, Customer
+    Size, Color, Supplier, Product, Customer,SupplierHistory,SupplierAttachment,SupplierComment,ProductSupplier
 )
 from .serializers import (
-    CustomUserCreateSerializer, CustomUserDetailSerializer, CustomUserUpdateSerializer,
-    BranchSerializer, DepartmentSerializer, DepartmentCreateSerializer, DepartmentDropdownSerializer,
-    RoleSerializer, RoleUpdateSerializer, CategorySerializer, TaxCodeSerializer, UOMSerializer,
+    
+     CategorySerializer, TaxCodeSerializer, UOMSerializer,
     WarehouseSerializer, SizeSerializer, ColorSerializer, SupplierSerializer, ProductSerializer,
-    CustomerSerializer
+    CustomerSerializer,Supplier,SupplierHistory
 )
-from core.serializers import Candidate,CandidateSerializer,CandidateDocumentSerializer
 
-from django.template.loader import render_to_string
-from django.core.mail import EmailMessage
+from core.permissions import RoleBasedPermission  # ← your real RBAC permission
+from .models import CustomUser, Branch, Department, Role
+from .serializers import (
+    CustomUserCreateSerializer, CustomUserDetailSerializer, CustomUserUpdateSerializer,
+    BranchSerializer,
+    DepartmentListSerializer, DepartmentDetailSerializer,
+    DepartmentCreateWithRolesSerializer, DepartmentUpdateWithRolesSerializer,DepartmentDropdownSerializer,
+    RoleReadSerializer,  # only read serializer for roles
+)
+
+from core.serializers import Candidate,CandidateSerializer,CandidateDocumentSerializer
 logger = logging.getLogger(__name__)
 
-class RoleBasedPermission(permissions.BasePermission):
-    def has_permission(self, request, view):
-        return request.user.is_authenticated
 
-class ManageUsersView(APIView):
-    permission_classes = [permissions.IsAuthenticated, RoleBasedPermission]
+# Custom pagination if you want different sizes per view
+class StandardPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'per_page'
+    max_page_size = 100
 
-    def get(self, request):
-        # Pagination
-        page = int(request.query_params.get('page', 1))
-        per_page = int(request.query_params.get('per_page', 10))
 
-        # Search
-        search = request.query_params.get('search', '').strip()
+# ────────────────────────────────────────────────
+# Users Management
+# ────────────────────────────────────────────────
 
-        users = CustomUser.objects.select_related('role').order_by('id')
+class ManageUsersListCreateView(generics.ListCreateAPIView):
+    """
+    List all users (paginated, searchable) + Create new user (admin only)
+    """
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    pagination_class = StandardPagination
 
-        # 🔍 GLOBAL SEARCH (PARTIAL + CASE INSENSITIVE)
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return CustomUserCreateSerializer  # ← Use this for creation (accepts IDs)
+        return CustomUserDetailSerializer      # ← Use this for list/detail (shows names)
+
+    def get_queryset(self):
+        qs = CustomUser.objects.select_related('branch', 'department', 'role').order_by('id')
+        search = self.request.query_params.get('search', '').strip()
         if search:
-            users = users.filter(
+            qs = qs.filter(
                 Q(email__icontains=search) |
                 Q(first_name__icontains=search) |
                 Q(last_name__icontains=search) |
@@ -59,1070 +84,1019 @@ class ManageUsersView(APIView):
                 Q(department__department_name__icontains=search) |
                 Q(branch__name__icontains=search)
             )
+        return qs
 
-        paginator = Paginator(users, per_page)
-        page_obj = paginator.get_page(page)
+    def perform_create(self, serializer):
+        if not self.request.user.is_superuser:
+            self.permission_denied(self.request, message="Only super admins can create users")
 
-        serializer = CustomUserDetailSerializer(page_obj, many=True)
+        # Create user — serializer now generates/hashes password if needed
+        user = serializer.save()
 
-        return Response({
-            'users': serializer.data,
-            'total_pages': paginator.num_pages,
-            'current_page': page,
-            'total_entries': users.count(),
-        }, status=status.HTTP_200_OK)
-
-    def post(self, request):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can add users'}, status=status.HTTP_403_FORBIDDEN)
-
+        # Email sending (password is available from serializer context if needed, but we generate here for email)
         password = get_random_string(length=8, allowed_chars='abcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*')
-        serializer = CustomUserCreateSerializer(data=request.data)
+        # Wait — to send raw password, we need to generate it here and set it again (hacky but works)
+        user.set_password(password)
+        user.save(update_fields=['password'])
 
-        if serializer.is_valid():
-            user = serializer.save(password=password)
+        context = {
+            'first_name': user.first_name or "User",
+            'email': user.email,
+            'password': password,  # raw for email
+            'site_name': 'Stackly ERP',
+            'site_link': settings.FRONTEND_URL.rstrip('/') + '/login',
+            'expiry_hours': 24,
+        }
 
-            context = {
-                'first_name': user.first_name,
-                'email': user.email,
-                'password': password,
-                'site_name': 'Stackly ERP',
-                'site_link': 'https://yourdomain.com/login'
-            }
+        subject = 'Welcome to Stackly ERP - Your Account Credentials'
+        html_message = render_to_string('emails/user_registration.html', context)
 
-            email_subject = 'Welcome to Stackly ERP - Your Account Credentials'
-            email_body = render_to_string('emails/user_registration.html', context)
-            email = EmailMessage(email_subject, email_body, settings.DEFAULT_FROM_EMAIL, [user.email])
-            email.content_subtype = 'html'
+        email = EmailMessage(
+            subject=subject,
+            body=html_message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[user.email],
+        )
+        email.content_subtype = 'html'
 
-            try:
-                email.send(fail_silently=False)
-                logger.info(f"Email sent to {user.email}")
-            except Exception as e:
-                logger.error(f"Failed to send email to {user.email}: {str(e)}")
-                return Response({'error': 'User created but email failed to send'}, status=status.HTTP_201_CREATED)
-
-            return Response(CustomUserDetailSerializer(user).data, status=status.HTTP_201_CREATED)
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class ManageUserDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated, RoleBasedPermission]
-
-    def get(self, request, pk):
         try:
-            user = CustomUser.objects.get(pk=pk)
-            serializer = CustomUserDetailSerializer(user)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except CustomUser.DoesNotExist:
-            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+            email.send(fail_silently=False)
+            logger.info(f"Welcome email sent successfully to {user.email}")
+        except Exception as e:
+            logger.error(f"Failed to send welcome email to {user.email}: {str(e)}")
 
-    def put(self, request, pk):
-        try:
-            user = CustomUser.objects.get(pk=pk)
-            serializer = CustomUserUpdateSerializer(user, data=request.data, partial=True)
-            if serializer.is_valid():
-                user = serializer.save()
-                return Response(CustomUserDetailSerializer(user).data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except CustomUser.DoesNotExist:
-            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        # Return detail response (with nested names)
+        return Response(CustomUserDetailSerializer(user).data, status=status.HTTP_201_CREATED)
 
-    def delete(self, request, pk):
-        try:
-            user = CustomUser.objects.get(pk=pk)
-            user.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except CustomUser.DoesNotExist:
-            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
 
-class BranchListView(APIView):
-    permission_classes = [permissions.IsAuthenticated, RoleBasedPermission]
+class ManageUserDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = CustomUser.objects.all()
+    serializer_class = CustomUserDetailSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
 
-    def get(self, request):
-        branches = Branch.objects.all()
-        serializer = BranchSerializer(branches, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+    def get_serializer_class(self):
+        if self.request.method in ['PUT', 'PATCH']:
+            return CustomUserUpdateSerializer
+        return CustomUserDetailSerializer
 
-    def post(self, request):
-        serializer = BranchSerializer(data=request.data)
-        if serializer.is_valid():
-            branch = serializer.save()
-            return Response(BranchSerializer(branch).data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def perform_destroy(self, instance):
+        # Optional: add soft-delete or check permissions
+        instance.delete()
 
-class BranchDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated, RoleBasedPermission]
 
-    def get(self, request, pk):
-        try:
-            branch = Branch.objects.get(pk=pk)
-            serializer = BranchSerializer(branch)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Branch.DoesNotExist:
-            return Response({'error': 'Branch not found'}, status=status.HTTP_404_NOT_FOUND)
+# ────────────────────────────────────────────────
+# Branches
+# ────────────────────────────────────────────────
 
-    def put(self, request, pk):
-        try:
-            branch = Branch.objects.get(pk=pk)
-            serializer = BranchSerializer(branch, data=request.data, partial=True)
-            if serializer.is_valid():
-                branch = serializer.save()
-                return Response(BranchSerializer(branch).data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except Branch.DoesNotExist:
-            return Response({'error': 'Branch not found'}, status=status.HTTP_404_NOT_FOUND)
+class BranchListCreateView(generics.ListCreateAPIView):
+    queryset = Branch.objects.all()
+    serializer_class = BranchSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    pagination_class = StandardPagination
 
-    def delete(self, request, pk):
-        try:
-            branch = Branch.objects.get(pk=pk)
-            branch.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Branch.DoesNotExist:
-            return Response({'error': 'Branch not found'}, status=status.HTTP_404_NOT_FOUND)
 
-from .serializers import DepartmentCreateWithRolesSerializer , DepartmentUpdateWithRolesSerializer
-class DepartmentListView(APIView):
-    permission_classes = [permissions.IsAuthenticated, RoleBasedPermission]
+class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Branch.objects.all()
+    serializer_class = BranchSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
 
-    def get(self, request):
-        page = int(request.query_params.get('page', 1))
-        per_page = int(request.query_params.get('per_page', 5))
-        branch_id = request.query_params.get('branch')
-        search = request.query_params.get('search')  # 👈 NEW
-        dropdown = request.query_params.get('dropdown', 'false').lower() == 'true'
-        include_roles = request.query_params.get('include_roles', 'true').lower() == 'true'
 
-        departments = Department.objects.all()
+# ────────────────────────────────────────────────
+# Departments (with nested roles support)
+# ────────────────────────────────────────────────
 
-        # ✅ Branch filter
+class DepartmentListView(generics.ListAPIView):
+    serializer_class = DepartmentListSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        qs = Department.objects.select_related('branch').all()
+        branch_id = self.request.query_params.get('branch')
+        search = self.request.query_params.get('search')
+        dropdown = self.request.query_params.get('dropdown', 'false').lower() == 'true'
+
         if branch_id:
-            try:
-                departments = departments.filter(branch_id=branch_id)
-            except ValueError:
-                return Response({'error': 'Invalid branch ID'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 🔍 Search by code OR department name
+            qs = qs.filter(branch_id=branch_id)
         if search:
-            departments = departments.filter(
+            qs = qs.filter(
                 Q(code__icontains=search) |
                 Q(department_name__icontains=search)
             )
 
-        paginator = PageNumberPagination()
-        paginator.page_size = per_page
-        page_obj = paginator.paginate_queryset(departments, request)
+        # For dropdown mode, override serializer in get_serializer
+        self.dropdown_mode = dropdown
+        return qs
 
-        if dropdown:
-            serializer = DepartmentDropdownSerializer(page_obj, many=True)
-        else:
-            serializer = DepartmentSerializer(
-                page_obj,
-                many=True,
-                context={'include_roles': include_roles}
-            )
+    def get_serializer_class(self):
+        if getattr(self, 'dropdown_mode', False):
+            return DepartmentDropdownSerializer
+        return DepartmentListSerializer
 
-        return Response({
-            'departments': serializer.data,
-            'total_pages': paginator.page.paginator.num_pages,
-            'current_page': page,
-            'total_entries': departments.count(),
-        }, status=status.HTTP_200_OK)
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['include_roles'] = self.request.query_params.get('include_roles', 'true').lower() == 'true'
+        return context
 
 
+class DepartmentCreateView(generics.CreateAPIView):
+    serializer_class = DepartmentCreateWithRolesSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
 
-    def post(self, request):
-        serializer = DepartmentCreateWithRolesSerializer(data=request.data)
-        if serializer.is_valid():
-            department = serializer.save()
-            # Return full department with roles included
-            full_serializer = DepartmentSerializer(department, context={'include_roles': True})
-            return Response(full_serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def perform_create(self, serializer):
+        department = serializer.save()
+        # Return full detail with roles
+        return Response(DepartmentDetailSerializer(department).data, status=status.HTTP_201_CREATED)
 
-class DepartmentDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated, RoleBasedPermission]
 
-    def get(self, request, pk):
-        try:
-            department = Department.objects.get(pk=pk)
-            serializer = DepartmentSerializer(department)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Department.DoesNotExist:
-            return Response({'error': 'Department not found'}, status=status.HTTP_404_NOT_FOUND)
+class DepartmentDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Department.objects.select_related('branch').all()
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
 
-    def put(self, request, pk):
-        try:
-            department = Department.objects.get(pk=pk)
-            serializer = DepartmentUpdateWithRolesSerializer(department, data=request.data, partial=True)
-            if serializer.is_valid():
-                department = serializer.save()
-                # Always return full object with roles
-                full_serializer = DepartmentSerializer(department, context={'include_roles': True})
-                return Response(full_serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except Department.DoesNotExist:
-            return Response({'error': 'Department not found'}, status=status.HTTP_404_NOT_FOUND)
+    def get_serializer_class(self):
+        if self.request.method in ['PUT', 'PATCH']:
+            return DepartmentUpdateWithRolesSerializer
+        return DepartmentDetailSerializer
 
-    def delete(self, request, pk):
-        try:
-            department = Department.objects.get(pk=pk)
-            department.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Department.DoesNotExist:
-            return Response({'error': 'Department not found'}, status=status.HTTP_404_NOT_FOUND)
 
-class RoleView(APIView):
-    permission_classes = [permissions.IsAuthenticated, RoleBasedPermission]
+# ────────────────────────────────────────────────
+# Roles – READ-ONLY (no create/update/delete)
+# ────────────────────────────────────────────────
 
-    def get(self, request):
-        page = int(request.query_params.get('page', 1))
-        per_page = int(request.query_params.get('per_page', 10))
-        department_id = request.query_params.get('department')
+class RoleListView(generics.ListAPIView):
+    """
+    Read-only list of roles (filtered by department if needed)
+    """
+    serializer_class = RoleReadSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    pagination_class = StandardPagination
 
-        roles = Role.objects.all().order_by('id')
+    def get_queryset(self):
+        qs = Role.objects.select_related('department', 'branch').all()
+        department_id = self.request.query_params.get('department')
         if department_id:
-            try:
-                roles = roles.filter(department_id=department_id)
-            except ValueError:
-                return Response({'error': 'Invalid department ID'}, status=status.HTTP_400_BAD_REQUEST)
+            qs = qs.filter(department_id=department_id)
+        return qs
 
-        paginator = PageNumberPagination()
-        paginator.page_size = per_page
-        page_obj = paginator.paginate_queryset(roles, request)
-        serializer = RoleSerializer(page_obj, many=True)
 
-        return Response({
-            'roles': serializer.data,
-            'total_pages': paginator.page.paginator.num_pages,
-            'current_page': page,
-            'total_entries': roles.count(),
-        }, status=status.HTTP_200_OK)
+class RoleDetailView(generics.RetrieveAPIView):
+    """
+    Read-only single role detail
+    """
+    queryset = Role.objects.select_related('department', 'branch').all()
+    serializer_class = RoleReadSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
 
-    def post(self, request):
-        serializer = RoleUpdateSerializer(data=request.data)
-        if serializer.is_valid():
-            role = serializer.save()
-            return Response(RoleSerializer(role).data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class RoleDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated, RoleBasedPermission]
 
-    def get(self, request, pk=None):
-        if pk:
-            try:
-                role = Role.objects.get(pk=pk)
-                serializer = RoleSerializer(role)
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            except Role.DoesNotExist:
-                return Response({'error': 'Role not found'}, status=status.HTTP_404_NOT_FOUND)
-        else:
-            page = int(request.query_params.get('page', 1))
-            per_page = int(request.query_params.get('per_page', 10))
-            department_id = request.query_params.get('department')
 
-            roles = Role.objects.all().order_by('id')
-            if department_id:
-                try:
-                    roles = roles.filter(department_id=department_id)
-                except ValueError:
-                    return Response({'error': 'Invalid department ID'}, status=status.HTTP_400_BAD_REQUEST)
+from .models import (
+    Product, Category, TaxCode, UOM, Warehouse, Size, Color, ProductSupplier
+)
+from .serializers import (
+    ProductSerializer, CategorySerializer, TaxCodeSerializer, UOMSerializer,
+    WarehouseSerializer, SizeSerializer, ColorSerializer, ProductSupplierSerializer
+)
 
-            paginator = PageNumberPagination()
-            paginator.page_size = per_page
-            page_obj = paginator.paginate_queryset(roles, request)
-            serializer = RoleSerializer(page_obj, many=True)
 
-            return Response({
-                'roles': serializer.data,
-                'total_pages': paginator.page.paginator.num_pages,
-                'current_page': page,
-                'total_entries': roles.count(),
-            }, status=status.HTTP_200_OK)
 
-    def put(self, request, pk):
-        try:
-            role = Role.objects.get(pk=pk)
-            serializer = RoleUpdateSerializer(role, data=request.data, partial=True)
-            if serializer.is_valid():
-                role = serializer.save()
-                return Response(RoleSerializer(role).data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except Role.DoesNotExist:
-            return Response({'error': 'Role not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    def delete(self, request, pk):
-        try:
-            role = Role.objects.get(pk=pk)
-            role.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Role.DoesNotExist:
-            return Response({'error': 'Role not found'}, status=status.HTTP_404_NOT_FOUND)
+# ────────────────────────────────────────────────
+# Product Views
+# ────────────────────────────────────────────────
 
-class ProductListView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
+class ProductListCreateView(generics.ListCreateAPIView):
+    queryset = Product.objects.select_related(
+        'category', 'tax_code', 'uom', 'warehouse', 'size', 'color', 'supplier'
+    ).prefetch_related('related_products')
+    serializer_class = ProductSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    pagination_class = StandardPagination
 
-    def get(self, request):
-        page = int(request.query_params.get('page', 1))
-        per_page = int(request.query_params.get('per_page', 10))
-        products = Product.objects.all()
-        paginator = Paginator(products, per_page)
-        page_obj = paginator.get_page(page)
-        serializer = ProductSerializer(page_obj, many=True)
-        return Response({
-            'products': serializer.data,
-            'total_pages': paginator.num_pages,
-            'current_page': page,
-            'total_entries': products.count(),
-        }, status=status.HTTP_200_OK)
+    def get_queryset(self):
+        qs = super().get_queryset()
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search) |
+                Q(product_id__icontains=search) |
+                Q(description__icontains=search) |
+                Q(category__name__icontains=search) |
+                Q(supplier__name__icontains=search)
+            )
+        return qs
 
-    def post(self, request):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can add products'}, status=status.HTTP_403_FORBIDDEN)
-        serializer = ProductSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def perform_create(self, serializer):
+        # NO created_by here — serializer handles it
+        serializer.save()  
 
-class ProductDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
 
-    def get(self, request, pk):
-        try:
-            product = Product.objects.get(pk=pk)
-            serializer = ProductSerializer(product)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Product.DoesNotExist:
-            return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
+class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, Update, Delete single Product
+    """
+    queryset = Product.objects.select_related(
+        'category', 'tax_code', 'uom', 'warehouse', 'size', 'color', 'supplier'
+    ).prefetch_related('related_products')
+    serializer_class = ProductSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
 
-    def put(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can edit products'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            product = Product.objects.get(pk=pk)
-            serializer = ProductSerializer(product, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except Product.DoesNotExist:
-            return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
+    def perform_update(self, serializer):
+        serializer.save()
 
-    def delete(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can delete products'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            product = Product.objects.get(pk=pk)
-            product.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Product.DoesNotExist:
-            return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
+    def perform_destroy(self, instance):
+        instance.delete()
+
+
+# ────────────────────────────────────────────────
+# Category Views
+# ────────────────────────────────────────────────
+
+class CategoryListCreateView(generics.ListCreateAPIView):
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    pagination_class = StandardPagination
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+
+# ────────────────────────────────────────────────
+# TaxCode Views
+# ────────────────────────────────────────────────
+
+class TaxCodeListCreateView(generics.ListCreateAPIView):
+    queryset = TaxCode.objects.all()
+    serializer_class = TaxCodeSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    pagination_class = StandardPagination
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class TaxCodeDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = TaxCode.objects.all()
+    serializer_class = TaxCodeSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+
+# ────────────────────────────────────────────────
+# UOM Views
+# ────────────────────────────────────────────────
+
+class UOMListCreateView(generics.ListCreateAPIView):
+    queryset = UOM.objects.all()
+    serializer_class = UOMSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    pagination_class = StandardPagination
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class UOMDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = UOM.objects.all()
+    serializer_class = UOMSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+
+# ────────────────────────────────────────────────
+# Warehouse Views
+# ────────────────────────────────────────────────
+
+class WarehouseListCreateView(generics.ListCreateAPIView):
+    queryset = Warehouse.objects.all()
+    serializer_class = WarehouseSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    pagination_class = StandardPagination
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class WarehouseDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Warehouse.objects.all()
+    serializer_class = WarehouseSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+
+# ────────────────────────────────────────────────
+# Size Views
+# ────────────────────────────────────────────────
+
+class SizeListCreateView(generics.ListCreateAPIView):
+    queryset = Size.objects.all()
+    serializer_class = SizeSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    pagination_class = StandardPagination
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class SizeDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Size.objects.all()
+    serializer_class = SizeSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+
+# ────────────────────────────────────────────────
+# Color Views
+# ────────────────────────────────────────────────
+
+class ColorListCreateView(generics.ListCreateAPIView):
+    queryset = Color.objects.all()
+    serializer_class = ColorSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    pagination_class = StandardPagination
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class ColorDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Color.objects.all()
+    serializer_class = ColorSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+
+# ────────────────────────────────────────────────
+# ProductSupplier Views
+# ────────────────────────────────────────────────
+
+class ProductSupplierListCreateView(generics.ListCreateAPIView):
+    queryset = ProductSupplier.objects.all()
+    serializer_class = ProductSupplierSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    pagination_class = StandardPagination
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class ProductSupplierDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = ProductSupplier.objects.all()
+    serializer_class = ProductSupplierSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
 
 class ProductImportView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
 
     def post(self, request):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can import products'}, status=status.HTTP_403_FORBIDDEN)
         file = request.FILES.get('file')
         if not file:
-            return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'No file uploaded'}, status=400)
 
-        df = pd.read_excel(file) if file.name.endswith('.xlsx') else pd.read_csv(file)
-        required_fields = ['product_id', 'name', 'product_type', 'category', 'status', 'stock_level', 'unit_price']
-        missing_fields = [field for field in required_fields if field not in df.columns]
-        if missing_fields:
-            return Response({'error': f'Missing required fields: {missing_fields}'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            if file.name.endswith('.csv'):
+                df = pd.read_csv(file)
+            elif file.name.endswith(('.xls', '.xlsx')):
+                df = pd.read_excel(file)
+            else:
+                return Response({'error': 'Unsupported file format'}, status=400)
+        except Exception as e:
+            return Response({'error': f'File read error: {str(e)}'}, status=400)
+
+        # Required columns
+        required = ['name', 'product_type', 'unit_price', 'quantity', 'stock_level', 'status', 'product_usage']
+
+        missing = [col for col in required if col not in df.columns]
+        if missing:
+            return Response({'error': f'Missing columns: {", ".join(missing)}'}, status=400)
 
         valid_rows = []
         invalid_rows = []
         skipped_rows = []
 
-        seen_product_ids = set()
-        seen_product_names = set()
+        seen_names = set()
 
         for index, row in df.iterrows():
-            if not all(row[field] for field in required_fields):
-                invalid_rows.append(index)
+            row_dict = row.to_dict()
+
+            if all(pd.isna(v) or v == '' for v in row_dict.values()):
+                skipped_rows.append(index + 1)
                 continue
 
-            product_id = str(row['product_id'])
-            product_name = str(row['name'])
-            if product_id in seen_product_ids or product_name in seen_product_names:
-                skipped_rows.append(index)
+            missing_in_row = [col for col in required if pd.isna(row_dict.get(col)) or row_dict.get(col) == '']
+            if missing_in_row:
+                invalid_rows.append({
+                    'row': index + 1,
+                    'errors': [f"{col} is required" for col in missing_in_row]
+                })
                 continue
 
-            seen_product_ids.add(product_id)
-            seen_product_names.add(product_name)
-            valid_rows.append(row.to_dict())
+            name = str(row_dict.get('name', '')).strip()
+            if name in seen_names:
+                skipped_rows.append(index + 1)
+                continue
+
+            seen_names.add(name)
+
+            data = {
+                'name': name,
+                'product_type': row_dict.get('product_type', ''),
+                'description': row_dict.get('description', ''),
+                'unit_price': float(row_dict.get('unit_price', 0)),
+                'discount': float(row_dict.get('discount', 0)),
+                'quantity': int(row_dict.get('quantity', 0)),
+                'stock_level': int(row_dict.get('stock_level', 0)),
+                'reorder_level': int(row_dict.get('reorder_level', 0)),
+                'weight': row_dict.get('weight', ''),
+                'specifications': row_dict.get('specifications', ''),
+                'status': row_dict.get('status', 'Active'),
+                'product_usage': row_dict.get('product_usage', 'Both'),
+                'sub_category': row_dict.get('sub_category', ''),
+                # Add foreign keys if in CSV (IDs)
+                'category': row_dict.get('category', None),
+                'tax_code': row_dict.get('tax_code', None),
+                'uom': row_dict.get('uom', None),
+                'warehouse': row_dict.get('warehouse', None),
+                'size': row_dict.get('size', None),
+                'color': row_dict.get('color', None),
+                'supplier': row_dict.get('supplier', None),
+            }
+
+            serializer = ProductSerializer(data=data, context={'request': request})
+            if serializer.is_valid():
+                valid_rows.append(data)
+            else:
+                invalid_rows.append({
+                    'row': index + 1,
+                    'errors': serializer.errors
+                })
+
+        return Response({
+            'valid_count': len(valid_rows),
+            'invalid_count': len(invalid_rows),
+            'skipped_count': len(skipped_rows),
+            'invalid_rows': invalid_rows,
+            'message': 'Validation complete. Click Import to save valid rows.'
+        }, status=200)
+
+
+class ProductImportConfirmView(APIView):
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+
+    @transaction.atomic
+    def post(self, request):
+        valid_rows = request.data.get('valid_rows', [])
+
+        if not valid_rows:
+            return Response({'error': 'No valid rows'}, status=400)
+
+        created = []
+        errors = []
 
         for row in valid_rows:
-            serializer = ProductSerializer(data=row)
+            serializer = ProductSerializer(data=row, context={'request': request})
             if serializer.is_valid():
-                serializer.save()
+                product = serializer.save()
+                created.append(ProductSerializer(product).data)
             else:
-                invalid_rows.append(row)
+                errors.append(serializer.errors)
 
         return Response({
-            'valid_rows': len(valid_rows),
-            'invalid_rows': len(invalid_rows),
-            'skipped_rows': len(skipped_rows)
+            'created_count': len(created),
+            'error_count': len(errors),
+            'created': created,
+            'errors': errors,
+            'message': 'Import complete. Review product data.'
+        }, status=201)
+
+
+class CustomerListCreateView(generics.ListCreateAPIView):
+    queryset = Customer.objects.all().order_by('-last_edit_date')
+    serializer_class = CustomerSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(first_name__icontains=search) |
+                Q(last_name__icontains=search) |
+                Q(email__icontains=search) |
+                Q(phone_number__icontains=search) |
+                Q(company_name__icontains=search) |
+                Q(customer_id__icontains=search)
+            )
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+from . import models
+
+class CustomerDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Customer.objects.all()
+    serializer_class = CustomerSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
+
+    def perform_update(self, serializer):
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        instance.delete()
+
+
+
+
+
+class CustomerImportView(APIView):
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+
+    def post(self, request):
+        file = request.FILES.get('file')
+        if not file:
+            return Response({'error': 'No file uploaded'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Read file (support CSV and Excel)
+        try:
+            if file.name.endswith('.csv'):
+                df = pd.read_csv(file)
+            elif file.name.endswith(('.xls', '.xlsx')):
+                df = pd.read_excel(file)
+            else:
+                return Response({'error': 'Unsupported file format. Use CSV or Excel'}, status=400)
+        except Exception as e:
+            return Response({'error': f'File read error: {str(e)}'}, status=400)
+
+        # Required columns (must match frontend template)
+        required_columns = [
+            'first_name', 'email', 'phone_number', 'customer_type', 'status'
+        ]
+        optional_columns = [
+            'last_name', 'address', 'street', 'city', 'state', 'zip_code', 'country',
+            'company_name', 'industry', 'location', 'gst_tax_id', 'credit_limit',
+            'billing_address', 'shipping_address', 'payment_terms', 'credit_term'
+        ]
+
+        # Check missing required columns
+        missing = [col for col in required_columns if col not in df.columns]
+        if missing:
+            return Response({'error': f'Missing required columns: {", ".join(missing)}'}, status=400)
+
+        valid_rows = []
+        invalid_rows = []
+        skipped_rows = []
+
+        seen_emails = set()
+
+        for index, row in df.iterrows():
+            row_dict = row.to_dict()
+
+            # Skip empty rows
+            if all(pd.isna(val) or val == '' for val in row_dict.values()):
+                skipped_rows.append(index + 1)
+                continue
+
+            # Check required fields
+            missing_in_row = [col for col in required_columns if pd.isna(row_dict.get(col)) or row_dict.get(col) == '']
+            if missing_in_row:
+                invalid_rows.append({
+                    'row': index + 1,
+                    'errors': [f"{col} is required" for col in missing_in_row]
+                })
+                continue
+
+            # Email uniqueness check (in-memory + DB)
+            email = str(row_dict.get('email', '')).strip()
+            if not email:
+                invalid_rows.append({'row': index + 1, 'errors': ['Email is required']})
+                continue
+
+            if email in seen_emails or Customer.objects.filter(email=email).exists():
+                skipped_rows.append(index + 1)
+                continue
+
+            seen_emails.add(email)
+
+            # Prepare data for serializer
+            data = {
+                'first_name': row_dict.get('first_name', ''),
+                'last_name': row_dict.get('last_name', ''),
+                'customer_type': row_dict.get('customer_type', ''),
+                'email': email,
+                'phone_number': str(row_dict.get('phone_number', '')),
+                'status': row_dict.get('status', 'Active'),
+                'address': row_dict.get('address', ''),
+                'street': row_dict.get('street', ''),
+                'city': row_dict.get('city', ''),
+                'state': row_dict.get('state', ''),
+                'zip_code': row_dict.get('zip_code', ''),
+                'country': row_dict.get('country', 'India'),
+                'company_name': row_dict.get('company_name', ''),
+                'industry': row_dict.get('industry', ''),
+                'location': row_dict.get('location', ''),
+                'gst_tax_id': row_dict.get('gst_tax_id', ''),
+                'credit_limit': float(row_dict.get('credit_limit', 0.00)),
+                'billing_address': row_dict.get('billing_address', ''),
+                'shipping_address': row_dict.get('shipping_address', ''),
+                'payment_terms': row_dict.get('payment_terms', ''),
+                'credit_term': row_dict.get('credit_term', ''),
+            }
+
+            # Validate with serializer
+            serializer = CustomerSerializer(data=data, context={'request': request})
+            if serializer.is_valid():
+                valid_rows.append(data)
+            else:
+                invalid_rows.append({
+                    'row': index + 1,
+                    'errors': serializer.errors
+                })
+
+        return Response({
+            'valid_count': len(valid_rows),
+            'invalid_count': len(invalid_rows),
+            'skipped_count': len(skipped_rows),
+            'invalid_rows': invalid_rows,
+            'message': 'Validation complete. Click Import to save valid rows.'
+        }, status=status.HTTP_200_OK)
+
+
+class CustomerImportConfirmView(APIView):
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+
+    @transaction.atomic
+    def post(self, request):
+        valid_rows = request.data.get('valid_rows', [])
+
+        if not valid_rows:
+            return Response({'error': 'No valid rows to import'}, status=400)
+
+        created = []
+        errors = []
+
+        for row in valid_rows:
+            serializer = CustomerSerializer(data=row, context={'request': request})
+            if serializer.is_valid():
+                customer = serializer.save()
+                created.append(CustomerSerializer(customer).data)
+            else:
+                errors.append(serializer.errors)
+
+        return Response({
+            'created_count': len(created),
+            'error_count': len(errors),
+            'created': created,
+            'errors': errors,
+            'message': 'Import complete. Review billing and shipping addresses.'
         }, status=status.HTTP_201_CREATED)
 
-class CategoryListView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
+# class CustomerSummaryView(APIView):
+#     permission_classes = [IsAuthenticated, RoleBasedPermission]
+
+#     def get(self, request):
+#         customers = Customer.objects.all()
+#         summary = {
+#             'active': customers.filter(status='Active').count(),
+#             'inactive': customers.filter(status='Inactive').count(),
+#             'total_credit_limit': customers.aggregate(total=models.Sum('credit_limit'))['total'] or 0,
+#             'total_available_limit': customers.aggregate(total=models.Sum('available_limit'))['total'] or 0,
+#             'sales_reps': CustomUser.objects.filter(role__role="Sales Representative").count()
+#         }
+#         return Response(summary, status=status.HTTP_200_OK)
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.db.models import Count, Q
+from django.db import transaction
+from .models import Customer
+from .serializers import CustomerSerializer
+
+from fuzzywuzzy import fuzz
+from django.db.models import Q
+
+class CustomerDuplicatesListView(APIView):
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
 
     def get(self, request):
-        page = int(request.query_params.get('page', 1))
-        per_page = int(request.query_params.get('per_page', 10))
-        categories = Category.objects.all()
-        paginator = Paginator(categories, per_page)
-        page_obj = paginator.get_page(page)
-        serializer = CategorySerializer(page_obj, many=True)
-        return Response({
-            'categories': serializer.data,
-            'total_pages': paginator.num_pages,
-            'current_page': page,
-            'total_entries': categories.count(),
-        }, status=status.HTTP_200_OK)
-
-    def post(self, request):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can add categories'}, status=status.HTTP_403_FORBIDDEN)
-        serializer = CategorySerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class CategoryDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request, pk):
-        try:
-            category = Category.objects.get(pk=pk)
-            serializer = CategorySerializer(category)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Category.DoesNotExist:
-            return Response({'error': 'Category not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def put(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can edit categories'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            category = Category.objects.get(pk=pk)
-            serializer = CategorySerializer(category, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except Category.DoesNotExist:
-            return Response({'error': 'Category not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def delete(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can delete categories'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            category = Category.objects.get(pk=pk)
-            category.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Category.DoesNotExist:
-            return Response({'error': 'Category not found'}, status=status.HTTP_404_NOT_FOUND)
-
-class TaxCodeListView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request):
-        page = int(request.query_params.get('page', 1))
-        per_page = int(request.query_params.get('per_page', 10))
-        tax_codes = TaxCode.objects.all()
-        paginator = Paginator(tax_codes, per_page)
-        page_obj = paginator.get_page(page)
-        serializer = TaxCodeSerializer(page_obj, many=True)
-        return Response({
-            'tax_codes': serializer.data,
-            'total_pages': paginator.num_pages,
-            'current_page': page,
-            'total_entries': tax_codes.count(),
-        }, status=status.HTTP_200_OK)
-
-    def post(self, request):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can add tax codes'}, status=status.HTTP_403_FORBIDDEN)
-        serializer = TaxCodeSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class TaxCodeDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request, pk):
-        try:
-            tax_code = TaxCode.objects.get(pk=pk)
-            serializer = TaxCodeSerializer(tax_code)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except TaxCode.DoesNotExist:
-            return Response({'error': 'Tax code not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def put(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can edit tax codes'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            tax_code = TaxCode.objects.get(pk=pk)
-            serializer = TaxCodeSerializer(tax_code, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except TaxCode.DoesNotExist:
-            return Response({'error': 'Tax code not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def delete(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can delete tax codes'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            tax_code = TaxCode.objects.get(pk=pk)
-            tax_code.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except TaxCode.DoesNotExist:
-            return Response({'error': 'Tax code not found'}, status=status.HTTP_404_NOT_FOUND)
-
-class UOMListView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request):
-        page = int(request.query_params.get('page', 1))
-        per_page = int(request.query_params.get('per_page', 10))
-        uoms = UOM.objects.all()
-        paginator = Paginator(uoms, per_page)
-        page_obj = paginator.get_page(page)
-        serializer = UOMSerializer(page_obj, many=True)
-        return Response({
-            'uoms': serializer.data,
-            'total_pages': paginator.num_pages,
-            'current_page': page,
-            'total_entries': uoms.count(),
-        }, status=status.HTTP_200_OK)
-
-    def post(self, request):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can add UOMs'}, status=status.HTTP_403_FORBIDDEN)
-        serializer = UOMSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class UOMDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request, pk):
-        try:
-            uom = UOM.objects.get(pk=pk)
-            serializer = UOMSerializer(uom)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except UOM.DoesNotExist:
-            return Response({'error': 'UOM not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def put(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can edit UOMs'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            uom = UOM.objects.get(pk=pk)
-            serializer = UOMSerializer(uom, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except UOM.DoesNotExist:
-            return Response({'error': 'UOM not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def delete(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can delete UOMs'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            uom = UOM.objects.get(pk=pk)
-            uom.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except UOM.DoesNotExist:
-            return Response({'error': 'UOM not found'}, status=status.HTTP_404_NOT_FOUND)
-
-class WarehouseListView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request):
-        page = int(request.query_params.get('page', 1))
-        per_page = int(request.query_params.get('per_page', 10))
-        warehouses = Warehouse.objects.all()
-        paginator = Paginator(warehouses, per_page)
-        page_obj = paginator.get_page(page)
-        serializer = WarehouseSerializer(page_obj, many=True)
-        return Response({
-            'warehouses': serializer.data,
-            'total_pages': paginator.num_pages,
-            'current_page': page,
-            'total_entries': warehouses.count(),
-        }, status=status.HTTP_200_OK)
-
-    def post(self, request):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can add warehouses'}, status=status.HTTP_403_FORBIDDEN)
-        serializer = WarehouseSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class WarehouseDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request, pk):
-        try:
-            warehouse = Warehouse.objects.get(pk=pk)
-            serializer = WarehouseSerializer(warehouse)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Warehouse.DoesNotExist:
-            return Response({'error': 'Warehouse not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def put(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can edit warehouses'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            warehouse = Warehouse.objects.get(pk=pk)
-            serializer = WarehouseSerializer(warehouse, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except Warehouse.DoesNotExist:
-            return Response({'error': 'Warehouse not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def delete(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can delete warehouses'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            warehouse = Warehouse.objects.get(pk=pk)
-            warehouse.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Warehouse.DoesNotExist:
-            return Response({'error': 'Warehouse not found'}, status=status.HTTP_404_NOT_FOUND)
-
-class SizeListView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request):
-        page = int(request.query_params.get('page', 1))
-        per_page = int(request.query_params.get('per_page', 10))
-        sizes = Size.objects.all()
-        paginator = Paginator(sizes, per_page)
-        page_obj = paginator.get_page(page)
-        serializer = SizeSerializer(page_obj, many=True)
-        return Response({
-            'sizes': serializer.data,
-            'total_pages': paginator.num_pages,
-            'current_page': page,
-            'total_entries': sizes.count(),
-        }, status=status.HTTP_200_OK)
-
-    def post(self, request):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can add sizes'}, status=status.HTTP_403_FORBIDDEN)
-        serializer = SizeSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class SizeDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request, pk):
-        try:
-            size = Size.objects.get(pk=pk)
-            serializer = SizeSerializer(size)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Size.DoesNotExist:
-            return Response({'error': 'Size not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def put(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can edit sizes'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            size = Size.objects.get(pk=pk)
-            serializer = SizeSerializer(size, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except Size.DoesNotExist:
-            return Response({'error': 'Size not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def delete(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can delete sizes'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            size = Size.objects.get(pk=pk)
-            size.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Size.DoesNotExist:
-            return Response({'error': 'Size not found'}, status=status.HTTP_404_NOT_FOUND)
-
-class ColorListView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request):
-        page = int(request.query_params.get('page', 1))
-        per_page = int(request.query_params.get('per_page', 10))
-        colors = Color.objects.all()
-        paginator = Paginator(colors, per_page)
-        page_obj = paginator.get_page(page)
-        serializer = ColorSerializer(page_obj, many=True)
-        return Response({
-            'colors': serializer.data,
-            'total_pages': paginator.num_pages,
-            'current_page': page,
-            'total_entries': colors.count(),
-        }, status=status.HTTP_200_OK)
-
-    def post(self, request):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can add colors'}, status=status.HTTP_403_FORBIDDEN)
-        serializer = ColorSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class ColorDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request, pk):
-        try:
-            color = Color.objects.get(pk=pk)
-            serializer = ColorSerializer(color)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Color.DoesNotExist:
-            return Response({'error': 'Color not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def put(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can edit colors'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            color = Color.objects.get(pk=pk)
-            serializer = ColorSerializer(color, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except Color.DoesNotExist:
-            return Response({'error': 'Color not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def delete(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can delete colors'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            color = Color.objects.get(pk=pk)
-            color.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Color.DoesNotExist:
-            return Response({'error': 'Color not found'}, status=status.HTTP_404_NOT_FOUND)
-
-from .models import ProductSupplier
-from .serializers import ProductSupplierSerializer
-class ProductSupplierListView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request):
-        page = int(request.query_params.get('page', 1))
-        per_page = int(request.query_params.get('per_page', 10))
-        suppliers = ProductSupplier.objects.all()
-        paginator = Paginator(suppliers, per_page)
-        page_obj = paginator.get_page(page)
-        serializer = ProductSupplierSerializer(page_obj, many=True)
-        return Response({
-            'suppliers': serializer.data,
-            'total_pages': paginator.num_pages,
-            'current_page': page,
-            'total_entries': suppliers.count(),
-        }, status=status.HTTP_200_OK)
-
-    def post(self, request):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can add suppliers'}, status=status.HTTP_403_FORBIDDEN)
-        serializer = ProductSupplierSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class ProductSupplierDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request, pk):
-        try:
-            supplier = ProductSupplier.objects.get(pk=pk)
-            serializer = ProductSupplierSerializer(supplier)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except ProductSupplier.DoesNotExist:
-            return Response({'error': 'Supplier not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def put(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can edit suppliers'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            supplier = ProductSupplier.objects.get(pk=pk)
-            serializer = ProductSupplierSerializer(supplier, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except ProductSupplier.DoesNotExist:
-            return Response({'error': 'Supplier not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def delete(self, request, pk):
-        if not request.user.is_superuser:
-            return Response({'error': 'Only super admins can delete suppliers'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            supplier = ProductSupplier.objects.get(pk=pk)
-            supplier.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except ProductSupplier.DoesNotExist:
-            return Response({'error': 'Supplier not found'}, status=status.HTTP_404_NOT_FOUND)
-
-class CustomerListView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request):
-        page = int(request.query_params.get('page', 1))
-        per_page = int(request.query_params.get('per_page', 10))
-        customers = Customer.objects.all().order_by('last_edit_date')
-        paginator = Paginator(customers, per_page)
-        page_obj = paginator.get_page(page)
-        serializer = CustomerSerializer(page_obj, many=True)
-        return Response({
-            'customers': serializer.data,
-            'total_pages': paginator.num_pages,
-            'current_page': page,
-            'total_entries': customers.count(),
-        }, status=status.HTTP_200_OK)
-
-    def post(self, request):
-        serializer = CustomerSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class CustomerDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request, pk):
-        try:
-            customer = Customer.objects.get(pk=pk)
-            serializer = CustomerSerializer(customer)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Customer.DoesNotExist:
-            return Response({'error': 'Customer not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def put(self, request, pk):
-        try:
-            customer = Customer.objects.get(pk=pk)
-            serializer = CustomerSerializer(customer, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except Customer.DoesNotExist:
-            return Response({'error': 'Customer not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def delete(self, request, pk):
-        try:
-            customer = Customer.objects.get(pk=pk)
-            customer.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Customer.DoesNotExist:
-            return Response({'error': 'Customer not found'}, status=status.HTTP_404_NOT_FOUND)
-
-class CustomerSummaryView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request):
-        customers = Customer.objects.all()
-        summary = {
-            'active': customers.filter(status='Active').count(),
-            'inactive': customers.filter(status='Inactive').count(),
-            'sales_reps': CandidateSerializer(
-                Candidate.objects.filter(designation__role="Sales Representative"),
-                many=True
-            ).data
-        }
-        return Response(summary, status=status.HTTP_200_OK)
-
-class CustomerDuplicatesView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def get(self, request):
-        duplicates = (
-            Customer.objects.values('first_name', 'last_name')
-            .annotate(count=Count('id'))
-            .filter(count__gt=1)
-        )
+        # Get all active customers
+        customers = Customer.objects.filter(is_active=True).select_related('assigned_sales_rep')
 
         duplicate_groups = []
-        for item in duplicates:
-            first_name = item['first_name']
-            last_name = item['last_name']
-            matching_customers = Customer.objects.filter(first_name=first_name, last_name=last_name)
-            if matching_customers.count() > 1:
-                primary = matching_customers.order_by('last_edit_date').first()
-                duplicates = matching_customers.exclude(id=primary.id)
-                serializer = CustomerSerializer(primary)
-                duplicates_serializer = CustomerSerializer(duplicates, many=True)
-                group = {
-                    'primary': serializer.data,
-                    'duplicates': duplicates_serializer.data
+
+        # Group by similar names (fuzzy match)
+        name_groups = {}
+        for c in customers:
+            full_name = f"{c.first_name} {c.last_name or ''}".strip().lower()
+            company = (c.company_name or "").strip().lower()
+
+            key = full_name if full_name else company
+            if not key:
+                continue
+
+            found = False
+            for existing_key, group in name_groups.items():
+                similarity = fuzz.token_sort_ratio(key, existing_key)
+                if similarity > 85:  # adjust threshold
+                    group.append(c)
+                    found = True
+                    break
+
+            if not found:
+                name_groups[key] = [c]
+
+        # Build groups with more than 1 customer
+        for group in name_groups.values():
+            if len(group) > 1:
+                primary = group[0]  # oldest or first
+                duplicates = group[1:]
+
+                group_data = {
+                    'primary': CustomerSerializer(primary).data,
+                    'duplicates': CustomerSerializer(duplicates, many=True).data,
+                    'matching_fields': ['Name', 'Company Name'],
+                    'potential_conflicts': ['Email', 'Phone', 'Address', 'GST ID']
                 }
-                duplicate_groups.append(group)
+                duplicate_groups.append(group_data)
 
-        return Response(duplicate_groups, status=status.HTTP_200_OK)
+        return Response({
+            'duplicate_groups': duplicate_groups,
+            'total_groups': len(duplicate_groups),
+            'message': 'Potential duplicates based on name/company similarity'
+        }, status=200)
 
-class CustomerMergeView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
+
+class CustomerMergeReviewView(APIView):
+    """
+    Returns detailed side-by-side comparison for selected primary + duplicates
+    """
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
 
     def post(self, request):
         primary_id = request.data.get('primary_id')
         duplicate_ids = request.data.get('duplicate_ids', [])
 
         if not primary_id or not duplicate_ids:
-            return Response(
-                {'error': 'Primary ID and duplicate IDs are required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'error': 'Primary ID and at least one duplicate ID required'}, status=400)
 
         try:
             primary = Customer.objects.get(id=primary_id)
             duplicates = Customer.objects.filter(id__in=duplicate_ids)
 
             if not duplicates.exists():
-                return Response(
-                    {'error': 'No valid duplicates provided'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                return Response({'error': 'No valid duplicates found'}, status=400)
 
-            serializer = CustomerSerializer(primary)
+            # Build side-by-side fields for review
+            fields_to_compare = [
+                'first_name', 'last_name', 'email', 'phone_number', 'company_name',
+                'address', 'street', 'city', 'state', 'zip_code', 'country',
+                'gst_tax_id', 'credit_limit', 'billing_address', 'shipping_address'
+            ]
+
+            comparison = []
+            for field in fields_to_compare:
+                primary_val = getattr(primary, field, None)
+                duplicate_vals = [getattr(d, field, None) for d in duplicates]
+
+                comparison.append({
+                    'field': field.replace('_', ' ').title(),
+                    'primary_value': primary_val,
+                    'duplicate_values': duplicate_vals,
+                    'conflict': len(set([v for v in duplicate_vals if v is not None])) > 1 or primary_val != duplicate_vals[0] if duplicate_vals else False
+                })
+
+            return Response({
+                'primary': CustomerSerializer(primary).data,
+                'duplicates': CustomerSerializer(duplicates, many=True).data,
+                'comparison': comparison
+            }, status=200)
+        except Customer.DoesNotExist:
+            return Response({'error': 'Primary or duplicate not found'}, status=404)
+
+
+class CustomerMergeConfirmView(APIView):
+    """
+    Performs the actual merge based on user choices
+    """
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+
+    @transaction.atomic
+    def post(self, request):
+        primary_id = request.data.get('primary_id')
+        duplicate_ids = request.data.get('duplicate_ids', [])
+        field_choices = request.data.get('field_choices', {})  # e.g. {"phone_number": "left", "address": "right"}
+
+        if not primary_id or not duplicate_ids:
+            return Response({'error': 'Primary ID and duplicate IDs required'}, status=400)
+
+        try:
+            primary = Customer.objects.get(id=primary_id)
+            duplicates = Customer.objects.filter(id__in=duplicate_ids)
+
+            if not duplicates.exists():
+                return Response({'error': 'No valid duplicates'}, status=400)
+
+            # Merge logic: apply user choices for conflicts
+            for field, choice in field_choices.items():
+                if choice == 'left':
+                    value = getattr(primary, field)
+                else:
+                    # Take from first duplicate (or implement more logic)
+                    value = getattr(duplicates.first(), field)
+                setattr(primary, field, value)
+
+            primary.save()
+
+            # Delete duplicates
             duplicates.delete()
 
-            return Response(
-                {'merged_record': serializer.data},
-                status=status.HTTP_200_OK
-            )
+            return Response({
+                'message': 'Merge successful',
+                'primary': CustomerSerializer(primary).data
+            }, status=200)
         except Customer.DoesNotExist:
-            return Response(
-                {'error': 'Primary record or duplicates not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({'error': 'Primary or duplicate not found'}, status=404)
         
+
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.db.models import Q
+from rest_framework import generics, status
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from core.permissions import RoleBasedPermission
+from rest_framework.pagination import PageNumberPagination
+from django.db import transaction
+from django.http import HttpResponse
+from django.template.loader import render_to_string
+from weasyprint import HTML
+from django.core.mail import EmailMessage
+import os
 
 from .models import Supplier, SupplierComment, SupplierAttachment
 from .serializers import (
-    SupplierSerializer,
-    SupplierCreateUpdateSerializer,
-    SupplierCommentSerializer,
-    SupplierAttachmentSerializer
+    SupplierSerializer, SupplierCreateUpdateSerializer,
+    SupplierCommentSerializer, SupplierAttachmentSerializer,SupplierHistorySerializer
 )
 
+class StandardPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'per_page'
+    max_page_size = 100
 
-class SupplierListView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-    def get(self, request):
-        suppliers = Supplier.objects.all()
+class SupplierListCreateView(generics.ListCreateAPIView):
+    queryset = Supplier.objects.all().order_by('-created_at')
+    serializer_class = SupplierCreateUpdateSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    pagination_class = StandardPagination
 
-        # Search by supplier ID or name
-        search = request.GET.get("search")
+    def get_queryset(self):
+        qs = super().get_queryset()
+        search = self.request.query_params.get('search', '').strip()
         if search:
-            suppliers = suppliers.filter(
+            qs = qs.filter(
                 Q(supplier_id__icontains=search) |
-                Q(supplier_name__icontains=search)
+                Q(supplier_name__icontains=search) |
+                Q(tax_id__icontains=search)
             )
+        status = self.request.query_params.get('status')
+        if status:
+            qs = qs.filter(status=status)
+        return qs
 
-        # Filter by status
-        status_param = request.GET.get("status")
-        if status_param:
-            suppliers = suppliers.filter(status=status_param)
+    def create(self, request, *args, **kwargs):
+        # Use input serializer for validation
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
 
-        # Filter by type
-        supplier_type = request.GET.get("type")
-        if supplier_type:
-            suppliers = suppliers.filter(supplier_type=supplier_type)
+        # Re-serialize the saved instance with FULL serializer
+        instance = serializer.instance
+        full_serializer = SupplierSerializer(instance)  # ← this gives id, supplier_id, timestamps, etc.
 
-        # Filter by tier
-        supplier_tier = request.GET.get("tier")
-        if supplier_tier:
-            suppliers = suppliers.filter(supplier_tier=supplier_tier)
-
-        serializer = SupplierSerializer(suppliers, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    def post(self, request):
-        serializer = SupplierCreateUpdateSerializer(data=request.data)
-        if serializer.is_valid():
-            supplier = serializer.save(created_by=request.user)
-            return Response(
-                SupplierSerializer(supplier).data,
-                status=status.HTTP_201_CREATED
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        headers = self.get_success_headers(full_serializer.data)
+        return Response(full_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
 
-class SupplierDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
+class SupplierDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Supplier.objects.all()
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
+
+    def get_serializer_class(self):
+        if self.request.method in ['GET']:
+            return SupplierSerializer  # full details for GET
+        return SupplierCreateUpdateSerializer  # input for PATCH/PUT
+
+    def perform_update(self, serializer):
+        serializer.save()
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', True)  # PATCH is partial
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        # Re-serialize with FULL serializer for response
+        full_serializer = SupplierSerializer(instance)
+
+        return Response(full_serializer.data)
+
+    def perform_destroy(self, instance):
+        if instance.workflow_status != 'Draft':
+            self.permission_denied(self.request, message="Cannot delete submitted suppliers")
+        instance.delete()
+
+
+class SupplierPDFView(APIView):
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+
     def get(self, request, pk):
-        try:
-            supplier = Supplier.objects.get(pk=pk)
-        except Supplier.DoesNotExist:
-            return Response({"error": "Supplier not found"}, status=404)
+        supplier = Supplier.objects.get(pk=pk)
+        if supplier.workflow_status != 'Submitted':
+            return Response({'error': 'PDF only available after submission'}, status=403)
 
-        serializer = SupplierSerializer(supplier)
-        return Response(serializer.data)
+        context = {
+            'supplier': supplier,
+            'comments': supplier.comments.all(),
+            'attachments': supplier.extra_attachments.all(),
+            'history': supplier.history.all()
+        }
 
-    def put(self, request, pk):
-        try:
-            supplier = Supplier.objects.get(pk=pk)
-        except Supplier.DoesNotExist:
-            return Response({"error": "Supplier not found"}, status=404)
+        html_string = render_to_string('emails/supplier_pdf.html', context)
+        html = HTML(string=html_string)
+        pdf = html.write_pdf()
 
-        serializer = SupplierCreateUpdateSerializer(supplier, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(SupplierSerializer(supplier).data)
+        response = HttpResponse(pdf, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="Supplier_{supplier.supplier_id}.pdf"'
+        return response
 
-        return Response(serializer.errors, status=400)
 
-    def delete(self, request, pk):
-        try:
-            supplier = Supplier.objects.get(pk=pk)
-            supplier.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)  # Better
-        except Supplier.DoesNotExist:
-            return Response({"error": "Supplier not found"}, status=404)
+class SupplierEmailView(APIView):
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+
+    def post(self, request, pk):
+        supplier = Supplier.objects.get(pk=pk)
+        if supplier.workflow_status != 'Submitted':
+            return Response({'error': 'Email only available after submission'}, status=403)
+
+        email = request.data.get('email')
+        if not email:
+            return Response({'error': 'Email is required'}, status=400)
+
+        html_content = render_to_string('emails/supplier_email.html', {'supplier': supplier})
+        msg = EmailMessage(f"Supplier {supplier.supplier_id}", html_content, to=[email])
+        msg.content_subtype = "html"
+        msg.send()
+
+        return Response({'message': 'Email sent successfully'}, status=200)
 
 
 class SupplierCommentView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+
     def get(self, request, pk):
         comments = SupplierComment.objects.filter(supplier_id=pk)
         serializer = SupplierCommentSerializer(comments, many=True)
@@ -1142,7 +1116,8 @@ class SupplierCommentView(APIView):
 
 
 class SupplierAttachmentView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+
     def get(self, request, pk):
         attachments = SupplierAttachment.objects.filter(supplier_id=pk)
         serializer = SupplierAttachmentSerializer(attachments, many=True)
@@ -1161,118 +1136,10 @@ class SupplierAttachmentView(APIView):
         return Response(serializer.errors, status=400)
 
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status, permissions
-from django.core.exceptions import ObjectDoesNotExist
-from django.http import HttpResponse
-from django.template.loader import render_to_string
-from django.core.mail import EmailMessage
-import pdfkit
-import os
-
-from .models import Supplier
-from .serializers import SupplierSerializer
-
-
-# Dynamic wkhtmltopdf path
-WKHTMLTOPDF_PATH = (
-    r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
-    if os.name == "nt"
-    else "/usr/bin/wkhtmltopdf"
-)
-config = pdfkit.configuration(wkhtmltopdf=WKHTMLTOPDF_PATH)
-
-class SupplierPDFView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
+class SupplierHistoryView(APIView):
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
 
     def get(self, request, pk):
-        try:
-            supplier = Supplier.objects.get(id=pk)
-
-            context = {
-                "supplier": supplier,
-                "attachments": supplier.extra_attachments.all(),
-                "comments": supplier.comments.all(),
-            }
-
-            html = render_to_string("supplier_pdf.html", context)
-
-            options = {
-                "page-size": "A4",
-                "margin-top": "10mm",
-                "margin-right": "10mm",
-                "margin-bottom": "10mm",
-                "margin-left": "10mm",
-                "encoding": "UTF-8",
-                "dpi": 300,
-                "zoom": 1,
-                "enable-local-file-access": None,
-                "no-stop-slow-scripts": None,
-                "disable-smart-shrinking": None,
-            }
-
-            pdf = pdfkit.from_string(html, False, configuration=config, options=options)
-
-            response = HttpResponse(pdf, content_type="application/pdf")
-            response["Content-Disposition"] = (
-                f'attachment; filename="supplier_{supplier.supplier_id}.pdf"'
-            )
-            return response
-
-        except ObjectDoesNotExist:
-            return Response(
-                {"error": "Supplier not found"}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        except Exception as e:
-            return Response(
-                {"error": f"PDF generation failed: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-
-
-class SupplierEmailView(APIView):
-    permission_classes = [permissions.IsAuthenticated,RoleBasedPermission]
-
-    def post(self, request, pk):
-        try:
-            supplier = Supplier.objects.get(id=pk)
-
-            email = request.data.get("email")
-            if not email:
-                return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-            data = SupplierSerializer(supplier).data
-
-            # Default HTML email template
-            html_content = request.data.get(
-                "html_content",
-                f"""
-                <html>
-                    <body>
-                        <h2>Supplier Details</h2>
-                        <p><strong>Supplier ID:</strong> {supplier.supplier_id}</p>
-                        <p><strong>Name:</strong> {supplier.supplier_name}</p>
-                        <p><strong>Country:</strong> {supplier.get_country_of_registration_display()}</p>
-                        <p><strong>Status:</strong> {supplier.status}</p>
-                        <p><strong>Risk Rating:</strong> {supplier.risk_rating}</p>
-                        <p>Thank you.</p>
-                    </body>
-                </html>
-                """
-            )
-
-            subject = f"Supplier {supplier.supplier_id}"
-            msg = EmailMessage(subject, html_content, to=[email])
-            msg.content_subtype = "html"
-            msg.send()
-
-            return Response({"message": "Email sent successfully"}, status=status.HTTP_200_OK)
-
-        except ObjectDoesNotExist:
-            return Response({"error": "Supplier not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        history = SupplierHistory.objects.filter(supplier_id=pk)
+        serializer = SupplierHistorySerializer(history, many=True)
+        return Response(serializer.data)

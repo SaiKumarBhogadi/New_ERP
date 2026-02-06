@@ -4,9 +4,16 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
-    path('register/', views.RegisterView.as_view(), name='register'),
+    # Auth
     path('login/', views.LoginView.as_view(), name='login'),
     path('logout/', views.LogoutView.as_view(), name='logout'),
+
+    # Password recovery
+    path('forgot-password/', views.ForgotPasswordView.as_view(), name='forgot-password'),
+    path('reset-password/<str:token>/', views.ResetPasswordView.as_view(), name='reset-password'),
+
+    # Profile
+    path('profile/', views.ProfileView.as_view(), name='profile'),
 
     path('profile/', views.ProfileView.as_view(), name='profile'),
     path('onboarding/', views.OnboardingListView.as_view(), name='onboarding-list'),
@@ -19,6 +26,5 @@ urlpatterns = [
     path('task-summary/', views.TaskSummaryView.as_view(), name='task-summary'),
     path("dashboard/", views.DashboardCombinedView.as_view(), name="dashboard-all"),
 
-    path('forgot-password/', views.ForgotPasswordView.as_view(), name='forgot-password'),
-    path('reset-password/<str:token>/', views.ResetPasswordView.as_view(), name='reset-password'),
+    
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

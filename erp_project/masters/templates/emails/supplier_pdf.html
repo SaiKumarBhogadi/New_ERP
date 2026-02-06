@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Supplier Profile - {{ supplier.supplier_id }}</title>
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 40px;
+            line-height: 1.6;
+            color: #333;
+            font-size: 14px;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 8px;
+            margin-top: 40px;
+            font-size: 20px;
+        }
+        .section {
+            margin-bottom: 35px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 25px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            background-color: #f8f9fa;
+            width: 30%;
+            font-weight: bold;
+        }
+        .custom {
+            color: #e67e22;
+            font-style: italic;
+            font-weight: bold;
+        }
+        .label {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Supplier Profile: {{ supplier.supplier_name }} ({{ supplier.supplier_id }})</h1>
+
+    <!-- Basic Info -->
+    <div class="section">
+        <h2>Basic Info</h2>
+        <table>
+            <tr><th>Supplier ID</th><td>{{ supplier.supplier_id }}</td></tr>
+            <tr><th>Tax ID (GSTIN/VAT)</th><td>{{ supplier.tax_id }}</td></tr>
+            <tr><th>Supplier Name</th><td>{{ supplier.supplier_name }}</td></tr>
+            <tr><th>Company Registration Number</th><td>{{ supplier.company_registration_number|default:"-" }}</td></tr>
+            <tr><th>Legal Entity Name</th><td>{{ supplier.legal_entity_name }}</td></tr>
+            <tr><th>Country of Registration</th><td>{{ supplier.get_country_of_registration_display }}</td></tr>
+            <tr><th>Supplier Type</th><td>
+                {% if supplier.is_custom_supplier_type %}
+                    <span class="custom">{{ supplier.custom_supplier_type }}</span> (Custom)
+                {% else %}
+                    {{ supplier.supplier_type|default:"-" }}
+                {% endif %}
+            </td></tr>
+            <tr><th>Supplier Tier</th><td>{{ supplier.supplier_tier|default:"-" }}</td></tr>
+            <tr><th>Status</th><td>{{ supplier.status }}</td></tr>
+            <tr><th>Workflow Status</th><td>{{ supplier.workflow_status|default:"Pending" }}</td></tr>
+            <tr><th>Product/Service Details</th><td>{{ supplier.product_details|default:"-" }}</td></tr>
+        </table>
+    </div>
+
+    <!-- Contact Information -->
+    <div class="section">
+        <h2>Contact Information</h2>
+        <table>
+            <tr><th>Primary Contact Name</th><td>{{ supplier.primary_contact_first_name }} {{ supplier.primary_contact_last_name }}</td></tr>
+            <tr><th>Designation / Role</th><td>{{ supplier.primary_contact_designation|default:"-" }}</td></tr>
+            <tr><th>Email</th><td>{{ supplier.primary_contact_email }}</td></tr>
+            <tr><th>Phone Number</th><td>{{ supplier.primary_contact_phone }}</td></tr>
+            <tr><th>Alternate Contact Info</th><td>{{ supplier.alternate_contact_number|default:"-" }}</td></tr>
+            <tr><th>Website</th><td>{{ supplier.website|default:"-" }}</td></tr>
+            <tr><th>Relationship Manager (Internal)</th><td>{{ supplier.relationship_manager|default:"-" }}</td></tr>
+        </table>
+    </div>
+
+    <!-- Addresses -->
+    <div class="section">
+        <h2>Addresses</h2>
+        <table>
+            <tr><th>Registered Office Address</th><td>{{ supplier.registered_address }}</td></tr>
+            <tr><th>Mailing Address</th><td>{{ supplier.mailing_address|default:"Same as Registered" }}</td></tr>
+            <tr><th>Warehouse / Delivery Address</th><td>{{ supplier.warehouse_address|default:"-" }}</td></tr>
+            <tr><th>Billing Address</th><td>{{ supplier.billing_address|default:"-" }}</td></tr>
+            <tr><th>Country / State / Region</th><td>{{ supplier.get_region_display }}</td></tr>
+        </table>
+    </div>
+
+    <!-- Banking & Payment -->
+    <div class="section">
+        <h2>Banking & Payment Information</h2>
+        <table>
+            <tr><th>Bank Name</th><td>{{ supplier.bank_name|default:"-" }}</td></tr>
+            <tr><th>Bank Account No.</th><td>{{ supplier.bank_account_no|default:"-" }}</td></tr>
+            <tr><th>IBAN / SWIFT Code</th><td>{{ supplier.iban_swift|default:"-" }}</td></tr>
+            <tr><th>Payment Method</th><td>{{ supplier.payment_method|default:"-" }}</td></tr>
+            <tr><th>Payment Terms</th><td>
+                {% if supplier.is_custom_payment_terms %}
+                    <span class="custom">{{ supplier.custom_payment_terms }}</span> (Custom)
+                {% else %}
+                    {{ supplier.payment_terms|default:"-" }}
+                {% endif %}
+            </td></tr>
+            <tr><th>Currency</th><td>{{ supplier.currency }}</td></tr>
+            <tr><th>Tax Withholding Setup</th><td>{{ supplier.tax_withholding_setup|default:"-" }}</td></tr>
+        </table>
+    </div>
+
+    <!-- Procurement & Operational -->
+    <div class="section">
+        <h2>Procurement & Operational Data</h2>
+        <table>
+            <tr><th>Categories Served</th><td>{{ supplier.categories_served|default:"-" }}</td></tr>
+            <tr><th>Incoterms</th><td>{{ supplier.incoterms|default:"-" }}</td></tr>
+            <tr><th>Product / Service Catalog</th><td>{{ supplier.product_catalog|default:"-" }}</td></tr>
+            <tr><th>Freight Terms</th><td>{{ supplier.freight_terms|default:"-" }}</td></tr>
+            <tr><th>Minimum Order Quantity</th><td>{{ supplier.min_order_quantity|default:"-" }}</td></tr>
+            <tr><th>Return / Replacement Policy</th><td>{{ supplier.return_replacement_policy|default:"-" }}</td></tr>
+            <tr><th>Average Lead Time (Days)</th><td>{{ supplier.avg_lead_time_days }}</td></tr>
+            <tr><th>Contract References</th><td>{{ supplier.contract_references|default:"-" }}</td></tr>
+        </table>
+    </div>
+
+    <!-- Compliance & Risk -->
+    <div class="section">
+        <h2>Compliance & Risk Management</h2>
+        <table>
+            <tr><th>Certifications</th><td>{{ supplier.certifications|default:"-" }}</td></tr>
+            <tr><th>Compliance Status</th><td>{{ supplier.compliance_status|default:"-" }}</td></tr>
+            <tr><th>Risk Rating</th><td>{{ supplier.risk_rating }}</td></tr>
+            <tr><th>Risk Notes / Flags</th><td>{{ supplier.risk_notes|default:"-" }}</td></tr>
+            <tr><th>Last Risk Assessment Date</th><td>{{ supplier.last_risk_assessment|default:"-" }}</td></tr>
+        </table>
+    </div>
+
+    <!-- Performance & Evaluation -->
+    <div class="section">
+        <h2>Performance & Evaluation</h2>
+        <table>
+            <tr><th>On-Time Delivery Rate (%)</th><td>{{ supplier.on_time_delivery_rate|default:"-" }}%</td></tr>
+            <tr><th>Quality Rating</th><td>{{ supplier.quality_rating|default:"-" }}/5</td></tr>
+            <tr><th>Defect / Return Rate (%)</th><td>{{ supplier.defect_return_rate|default:"-" }}%</td></tr>
+            <tr><th>Last Evaluation Date</th><td>{{ supplier.last_evaluation_date|default:"-" }}</td></tr>
+            <tr><th>Contract Breaches (Y/N)</th><td>{{ supplier.contract_breaches|default:"-" }}</td></tr>
+            <tr><th>Improvement Plans</th><td>{{ supplier.improvement_plans|default:"-" }}</td></tr>
+            <tr><th>Complaints Registered</th><td>{{ supplier.complaints_registered|default:"-" }}</td></tr>
+        </table>
+    </div>
+
+    <!-- Relationship & Communication -->
+    <div class="section">
+        <h2>Relationship & Communication History</h2>
+        <table>
+            <tr><th>External Key Contact</th><td>{{ supplier.external_key_contact|default:"-" }}</td></tr>
+        </table>
+    </div>
+
+    <!-- Comments -->
+    {% if comments %}
+    <div class="section">
+        <h2>Comments / History</h2>
+        {% for comment in comments %}
+            <p><strong>{{ comment.timestamp|date:"d M Y, H:i" }}</strong> - {{ comment.comment }} (by {{ comment.commented_by|default:"System" }})</p>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Attachments -->
+    {% if attachments %}
+    <div class="section">
+        <h2>Attachments</h2>
+        {% for att in attachments %}
+            <p>{{ att.description|default:att.file.name }} - Uploaded by {{ att.uploaded_by|default:"System" }} on {{ att.uploaded_at|date:"d M Y" }}</p>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+</body>
+</html>

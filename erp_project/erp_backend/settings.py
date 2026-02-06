@@ -103,7 +103,7 @@ WSGI_APPLICATION = 'erp_backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'erp_dev_db',
+        'NAME': 'erp_db',
         'USER': 'admin',
         'PASSWORD': 'Test@123',
         'HOST': 'localhost',
@@ -165,6 +165,8 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 10,
 }
 
 # settings.py
@@ -190,5 +192,8 @@ EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = "saibhogadi@thestackly.com"
-EMAIL_HOST_PASSWORD = "onzltnwegrlnawta"  
+EMAIL_HOST_USER = "sainaidu6327@gmail.com"
+EMAIL_HOST_PASSWORD = "bltlaxromvyryilf"  
+
+
+FRONTEND_URL = 'http://127.0.0.1:8000/'  

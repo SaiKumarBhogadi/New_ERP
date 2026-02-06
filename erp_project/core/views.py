@@ -22,142 +22,173 @@ from django.core.paginator import Paginator
 
 logger = logging.getLogger(__name__)
 
-class RoleBasedPermission(permissions.BasePermission):
-    def has_permission(self, request, view):
-        return request.user.is_authenticated
+# core/views.py (auth-related views only - add to your existing file)
 
-class RegisterView(APIView):
-    permission_classes = [permissions.AllowAny]
+from rest_framework import generics, status
+from rest_framework.response import Response
+from rest_framework.authtoken.models import Token
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from django.utils import timezone
+from django.utils.crypto import get_random_string
+from django.core.mail import EmailMessage
+from django.template.loader import render_to_string
+from django.conf import settings
+import logging
 
-    def post(self, request):
-        serializer = CustomUserCreateSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.save()
-            token, created = Token.objects.get_or_create(user=user)
-            return Response({
-                'token': token.key,
-                'user': {
-                    'id': user.id,
-                    'name': user.first_name,
-                    'email': user.email,
-                    'profile_pic': user.profile_pic.url if user.profile_pic else None,
-                    'job_role': user.role.role if user.role else None,
-                    'mobile': user.contact_number,
-                }
-            }, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+from masters.models import CustomUser
+from masters.serializers import CustomUserDetailSerializer
+from .serializers import (
+    LoginSerializer, ForgotPasswordSerializer, ResetPasswordSerializer,
+    ProfileUpdateSerializer, ProfileChangePasswordSerializer
+)
+from core.permissions import RoleBasedPermission
 
-class LoginView(APIView):
-    permission_classes = [permissions.AllowAny]
+logger = logging.getLogger(__name__)
 
-    def post(self, request):
-        serializer = LoginSerializer(data=request.data)
-        if serializer.is_valid():
-            user = authenticate(
-                username=serializer.validated_data['email'],
-                password=serializer.validated_data['password']
-            )
-            if user:
-                token, created = Token.objects.get_or_create(user=user)
-                if not serializer.validated_data.get('remember_me', True):
-                    request.session.set_expiry(0)
-                else:
-                    request.session.set_expiry(1209600)
-                return Response({
-                    'token': token.key,
-                    'user': {
-                        'id': user.id,
-                        'name': user.first_name,
-                        'email': user.email,
-                        'profile_pic': user.profile_pic.url if user.profile_pic else None,
-                        'job_role': user.role.role if user.role else None,
-                        'mobile': user.contact_number,
-                    }
-                }, status=status.HTTP_200_OK)
-            return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-class LogoutView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+
+class LoginView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = LoginSerializer
 
     def post(self, request):
-        request.user.auth_token.delete()   # delete token
-        request.session.flush()            # clear remember-me session
-        return Response({"message": "Logged out successfully"}, status=200)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data['user']
+
+        token, _ = Token.objects.get_or_create(user=user)
+
+        # Handle remember_me
+        if not serializer.validated_data.get('remember_me', True):
+            request.session.set_expiry(0)  # session ends on browser close
+        else:
+            request.session.set_expiry(1209600)  # 2 weeks
+
+        return Response({
+            'token': token.key,
+            'user': {
+                'id': user.id,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'email': user.email,
+                'profile_pic': user.profile_pic.url if user.profile_pic else None,
+                'job_role': user.role.role if user.role else None,
+                'mobile': user.contact_number,
+            }
+        }, status=status.HTTP_200_OK)
 
 
-class ForgotPasswordView(APIView):
-    permission_classes = [permissions.AllowAny]
+class LogoutView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        serializer = ForgotPasswordSerializer(data=request.data)
-        if serializer.is_valid():
-            email = serializer.validated_data['email']
-            try:
-                user = CustomUser.objects.get(email=email)
-                reset_token = get_random_string(length=32)
-                user.reset_token = reset_token
-                user.reset_token_expiry = timezone.now() + timezone.timedelta(minutes=30)
-                user.save()
+        request.user.auth_token.delete()  # delete token
+        request.session.flush()           # clear session
+        return Response({"message": "Logged out successfully"}, status=status.HTTP_200_OK)
 
-                reset_link = f" http://127.0.0.1:8000/reset-password/{reset_token}/"
-                subject = 'Password Reset Request'
-                message = f'Click the link to reset your password: {reset_link}'
-                from_email = settings.EMAIL_HOST_USER
-                send_mail(subject, message, from_email, [email], fail_silently=False)
 
-                return Response({'redirect': '/check-email', 'email': email}, status=status.HTTP_200_OK)
-            except CustomUser.DoesNotExist:
-                return Response({'error': 'Email not registered'}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+class ForgotPasswordView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = ForgotPasswordSerializer
 
-class ResetPasswordView(APIView):
-    permission_classes = [permissions.AllowAny]
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
+
+        try:
+            user = CustomUser.objects.get(email=email, is_active=True)
+        except CustomUser.DoesNotExist:
+            return Response({"detail": "No active user found with this email."}, status=status.HTTP_400_BAD_REQUEST)
+
+        reset_token = get_random_string(length=32)
+        user.reset_token = reset_token
+        user.reset_token_expiry = timezone.now() + timezone.timedelta(hours=1)
+        user.save()
+
+        reset_link = f"{settings.FRONTEND_URL.rstrip('/')}/reset-password/{reset_token}"
+
+        context = {
+            'user': user,
+            'reset_link': reset_link,
+            'expiry_hours': 1,
+            'site_name': 'Stackly ERP',
+        }
+
+        subject = 'Stackly ERP - Password Reset Request'
+        html_message = render_to_string('emails/forgot_password.html', context)
+
+        email_msg = EmailMessage(
+            subject=subject,
+            body=html_message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[email],
+        )
+        email_msg.content_subtype = 'html'
+
+        try:
+            email_msg.send(fail_silently=False)
+            logger.info(f"Password reset email sent to {email}")
+            return Response({"detail": "Password reset link has been sent to your email."}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Failed to send reset email to {email}: {str(e)}")
+            return Response({"detail": "Failed to send reset email. Please try again later."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class ResetPasswordView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = ResetPasswordSerializer
 
     def post(self, request, token):
         try:
-            user = CustomUser.objects.get(reset_token=token, reset_token_expiry__gt=timezone.now())
-            serializer = ResetPasswordSerializer(data=request.data)
-            if serializer.is_valid():
-                user.set_password(serializer.validated_data['new_password'])
-                user.reset_token = None
-                user.reset_token_expiry = None
-                user.save()
-                return Response({'message': 'Password reset successful. Please log in.', 'redirect': '/login'}, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            user = CustomUser.objects.get(
+                reset_token=token,
+                reset_token_expiry__gt=timezone.now()
+            )
         except CustomUser.DoesNotExist:
-            return Response({'error': 'Invalid or expired token'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Invalid or expired reset token"}, status=status.HTTP_400_BAD_REQUEST)
 
-class ProfileView(APIView):
-    permission_classes = [permissions.IsAuthenticated ]
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-    def get(self, request):
-        serializer = CustomUserDetailSerializer(request.user)
-        logger.info(f"Profile retrieved for user: {request.user.email}")
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        user.set_password(serializer.validated_data['new_password'])
+        user.reset_token = None
+        user.reset_token_expiry = None
+        user.save()
 
-    def put(self, request):
-        data = request.data.copy() if hasattr(request.data, 'copy') else request.data
-        password_data = {
-            'password': data.pop('password', None),
-            'confirm_password': data.pop('confirm_password', None)
-        }
+        return Response({"message": "Password reset successful. Please log in."}, status=status.HTTP_200_OK)
 
-        serializer = ProfileUpdateSerializer(request.user, data=data, partial=True)
-        if serializer.is_valid():
-            user = serializer.save()
-            logger.info(f"Profile updated for user: {request.user.email}, updated fields: {serializer.validated_data}")
-            if password_data['password'] and password_data['confirm_password']:
-                password_serializer = ProfileChangePasswordSerializer(data=password_data)
-                if password_serializer.is_valid():
-                    password_serializer.update(request.user, password_serializer.validated_data)
-                    logger.info(f"Password updated for user: {request.user.email}")
-                else:
-                    logger.error(f"Password update failed for user: {request.user.email}, errors: {password_serializer.errors}")
-                    return Response(password_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-            return Response(CustomUserDetailSerializer(user).data, status=status.HTTP_200_OK)
-        logger.error(f"Profile update failed for user: {request.user.email}, errors: {serializer.errors}")
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ProfileView(generics.RetrieveUpdateAPIView):
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    serializer_class = CustomUserDetailSerializer
+
+    def get_object(self):
+        return self.request.user
+
+    def get_serializer_class(self):
+        if self.request.method in ['PUT', 'PATCH']:
+            return ProfileUpdateSerializer
+        return CustomUserDetailSerializer
+
+    def update(self, request, *args, **kwargs):
+        user = self.get_object()
+
+        # Handle profile update
+        profile_serializer = ProfileUpdateSerializer(user, data=request.data, partial=True)
+        profile_serializer.is_valid(raise_exception=True)
+        profile_serializer.save()
+
+        # Handle password change (if provided)
+        if 'current_password' in request.data:
+            password_serializer = ProfileChangePasswordSerializer(
+                user,
+                data=request.data,
+                partial=True,
+                context={'request': request}
+            )
+            password_serializer.is_valid(raise_exception=True)
+            password_serializer.save()  # ← NO (user) here — just save()
+
+        return Response(CustomUserDetailSerializer(user).data, status=status.HTTP_200_OK)
 
 
 class OnboardingListView(APIView):

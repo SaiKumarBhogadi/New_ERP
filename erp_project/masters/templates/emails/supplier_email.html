@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Supplier Profile - {{ supplier.supplier_id }}</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+    <h2 style="color: #2c3e50;">Supplier Profile: {{ supplier.supplier_name }} ({{ supplier.supplier_id }})</h2>
+
+    <p><strong>Tax ID:</strong> {{ supplier.tax_id }}</p>
+    <p><strong>Supplier Name:</strong> {{ supplier.supplier_name }}</p>
+    <p><strong>Legal Entity:</strong> {{ supplier.legal_entity_name }}</p>
+    <p><strong>Country:</strong> {{ supplier.get_country_of_registration_display }}</p>
+    <p><strong>Type:</strong> 
+        {% if supplier.is_custom_supplier_type %}
+            {{ supplier.custom_supplier_type }} (Custom)
+        {% else %}
+            {{ supplier.supplier_type|default:"-" }}
+        {% endif %}
+    </p>
+    <p><strong>Status:</strong> {{ supplier.status }}</p>
+    <p><strong>Workflow Status:</strong> {{ supplier.workflow_status|default:"Pending" }}</p>
+
+    <p><strong>Primary Contact:</strong> {{ supplier.primary_contact_first_name }} {{ supplier.primary_contact_last_name }}</p>
+    <p><strong>Email:</strong> {{ supplier.primary_contact_email }}</p>
+    <p><strong>Phone:</strong> {{ supplier.primary_contact_phone }}</p>
+
+    <p>Thank you,<br>Stackly ERP Team</p>
+</body>
+</html>
