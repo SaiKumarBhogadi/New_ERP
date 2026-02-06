@@ -15,7 +15,7 @@ urlpatterns = [
     # Profile
     path('profile/', views.ProfileView.as_view(), name='profile'),
 
-    path('profile/', views.ProfileView.as_view(), name='profile'),
+  
     path('onboarding/', views.OnboardingListView.as_view(), name='onboarding-list'),
     path('onboarding/<int:pk>/', views.OnboardingDetailView.as_view(), name='onboarding-detail'),
     path('attendance/', views.AttendanceView.as_view(), name='attendance'),
