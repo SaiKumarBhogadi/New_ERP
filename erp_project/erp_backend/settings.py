@@ -14,6 +14,14 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 from pathlib import Path
 from decouple import config
 import pymysql
+import environ
+ 
+BASE_DIR = Path(__file__).resolve().parent.parent
+ 
+env = environ.Env()
+ 
+# Read .env file
+environ.Env.read_env(BASE_DIR / '.env')
 pymysql.install_as_MySQLdb()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -103,11 +111,11 @@ WSGI_APPLICATION = 'erp_backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'erp_qa_db',  
-        'USER': 'admin',
-        'PASSWORD': 'StacklyVasa',  
-        'HOST': 'erp-qa.cvy4we044sft.ap-south-1.rds.amazonaws.com', 
-        'PORT': '3306',
+        'NAME': .env('DB_NAME'),
+        'USER': .env('DB_USER'),
+        'PASSWORD': .env('DB_PASSWORD'),
+        'HOST': .env('DB_HOST'),
+        'PORT': .env('DB_PORT'),
         'OPTIONS': {
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
             'charset': 'utf8mb4',
@@ -192,8 +200,8 @@ EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = "sainaidu6327@gmail.com"
-EMAIL_HOST_PASSWORD = "bltlaxromvyryilf"  
+EMAIL_HOST_USER=env("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD =env("EMAIL_HOST_PASSWORD")  
 
 
 FRONTEND_URL = 'https://35.154.32.180:3000'  
