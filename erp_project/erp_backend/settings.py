@@ -30,7 +30,7 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",  "https://35.154.32.180:3000"
@@ -103,10 +103,10 @@ WSGI_APPLICATION = 'erp_backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'erp_db',
+        'NAME': 'erp_qa_db',  
         'USER': 'admin',
-        'PASSWORD': 'Test@123',
-        'HOST': 'localhost',
+        'PASSWORD': 'StacklyVasa',  
+        'HOST': 'erp-qa.cvy4we044sft.ap-south-1.rds.amazonaws.com', 
         'PORT': '3306',
         'OPTIONS': {
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
@@ -196,4 +196,4 @@ EMAIL_HOST_USER = "sainaidu6327@gmail.com"
 EMAIL_HOST_PASSWORD = "bltlaxromvyryilf"  
 
 
-FRONTEND_URL = 'http://127.0.0.1:8000/'  
+FRONTEND_URL = 'https://35.154.32.180:3000'  
