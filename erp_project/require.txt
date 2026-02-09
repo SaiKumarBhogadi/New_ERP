@@ -19,4 +19,4 @@ reportlab
 six
 sqlparse
 tzdata
-django-enviorn
+django-environ
