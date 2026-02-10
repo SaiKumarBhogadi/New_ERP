@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sales Order {{ sales_order.sales_order_id }}</title>
+    <style>
+        body { font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #333; max-width: 700px; margin: 0 auto; padding: 20px; }
+        h1 { color: #2c3e50; }
+        h2 { color: #34495e; border-bottom: 2px solid #eee; padding-bottom: 8px; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background-color: #f8f9fa; }
+        .total { font-weight: bold; font-size: 1.1em; }
+        .highlight { background-color: #f1f8ff; padding: 15px; border-radius: 6px; margin: 20px 0; }
+        .footer { margin-top: 40px; font-size: 0.9em; color: #777; text-align: center; }
+        .button { 
+            display: inline-block; 
+            background-color: #3498db; 
+            color: white; 
+            padding: 12px 24px; 
+            text-decoration: none; 
+            border-radius: 5px; 
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Sales Order {{ sales_order.sales_order_id }}</h1>
+
+    <p>Dear {{ sales_order.customer.name }},</p>
+
+    <p>Thank you for your business. Please find below the details of your sales order.</p>
+
+    <div class="highlight">
+        <strong>Order Date:</strong> {{ sales_order.order_date|date:"d M Y" }}<br>
+        <strong>Order Type:</strong> {{ sales_order.order_type }}<br>
+        <strong>Sales Representative:</strong> {{ sales_order.sales_rep|default:"-" }}<br>
+        <strong>Expected Delivery:</strong> {{ sales_order.expected_delivery|date:"d M Y"|default:"-" }}
+    </div>
+
+    <h2>Order Items</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Product</th>
+                <th>Qty</th>
+                <th>Unit Price</th>
+                <th>Discount</th>
+                <th>Tax</th>
+                <th class="amount">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ item.product_name }} ({{ item.product_id_display }})</td>
+                <td>{{ item.quantity }} {{ item.uom|default:"" }}</td>
+                <td>{{ item.unit_price|floatformat:2 }}</td>
+                <td>{{ item.discount|floatformat:2 }}%</td>
+                <td>{{ item.tax_rate|floatformat:2 }}%</td>
+                <td class="amount">{{ item.total|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <table style="width: auto; margin-left: auto;">
+        <tr>
+            <td>Subtotal:</td>
+            <td class="amount">{{ subtotal|floatformat:2 }} {{ sales_order.currency }}</td>
+        </tr>
+        <tr>
+            <td>Global Discount ({{ sales_order.global_discount }}%):</td>
+            <td class="amount">-{{ sales_order.global_discount_amount|default:0|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td>Tax:</td>
+            <td class="amount">{{ tax_summary|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td>Shipping Charges:</td>
+            <td class="amount">{{ sales_order.shipping_charges|floatformat:2 }}</td>
+        </tr>
+        <tr class="total">
+            <td><strong>Grand Total:</strong></td>
+            <td class="amount"><strong>{{ grand_total|floatformat:2 }} {{ sales_order.currency }}</strong></td>
+        </tr>
+    </table>
+
+    {% if sales_order.terms_conditions %}
+    <h2>Terms & Conditions</h2>
+    <p style="white-space: pre-line;">{{ sales_order.terms_conditions }}</p>
+    {% endif %}
+
+    {% if sales_order.customer_notes %}
+    <h2>Additional Notes</h2>
+    <p style="white-space: pre-line;">{{ sales_order.customer_notes }}</p>
+    {% endif %}
+
+    <p style="margin-top: 30px;">
+        <strong>Payment Due Date:</strong> {{ sales_order.due_date|date:"d M Y"|default:"30 days from invoice date" }}
+    </p>
+
+    <p>
+        If you have any questions, please contact your sales representative or reply to this email.
+    </p>
+
+    <a href="#" class="button">View Order Online</a>
+
+    <div class="footer">
+        Thank you for choosing us!<br>
+        Your Company Name | sales@yourcompany.com | +91 98765 43210<br>
+        This is an automatically generated email. Please do not reply directly.
+    </div>
+
+</body>
+</html>

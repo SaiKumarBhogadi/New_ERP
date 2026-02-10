@@ -3,6 +3,8 @@ from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, Permis
 from django.utils import timezone
 from django.db.models import JSONField, UniqueConstraint
 from django.core.validators import RegexValidator
+from django.conf import settings
+from django.db import models
 
 
 class CustomUserManager(BaseUserManager):
@@ -36,7 +38,10 @@ class Branch(models.Model):
     
     is_active = models.BooleanField(default=True)         
     created_at = models.DateTimeField(auto_now_add=True)  
-    updated_at = models.DateTimeField(auto_now=True)       
+    updated_at = models.DateTimeField(auto_now=True) 
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_branches')
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='updated_branches')
+      
 
     class Meta:
         verbose_name = "Branch"
@@ -108,6 +113,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_users')
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='updated_users')
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['first_name']
@@ -147,7 +154,9 @@ class Department(models.Model):
     
     is_active = models.BooleanField(default=True)          
     created_at = models.DateTimeField(auto_now_add=True)  
-    updated_at = models.DateTimeField(auto_now=True)      
+    updated_at = models.DateTimeField(auto_now=True)   
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_departments')
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='updated_departments')   
 
     class Meta:
         verbose_name = "Department"
@@ -180,7 +189,9 @@ class Role(models.Model):
     
     is_active = models.BooleanField(default=True)          
     created_at = models.DateTimeField(auto_now_add=True)  
-    updated_at = models.DateTimeField(auto_now=True)      
+    updated_at = models.DateTimeField(auto_now=True)  
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_roles')
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='updated_roles')    
 
     class Meta:
         verbose_name = "Role"
@@ -202,12 +213,11 @@ class Role(models.Model):
 
 
 from django.db import models
-from django.contrib.auth import get_user_model
+
 from django.utils import timezone
 from django.db.models import UniqueConstraint, Index
 from django.core.validators import MinValueValidator
 
-User = get_user_model()
 
 
 class Category(models.Model):
@@ -216,8 +226,8 @@ class Category(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_categories')
-    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='updated_categories')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_categories')
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='updated_categories')
 
     class Meta:
         verbose_name = "Category"
@@ -233,17 +243,24 @@ class Category(models.Model):
     def __str__(self):
         return self.name
 
+from decimal import Decimal
+from django.core.validators import MinValueValidator
 
 class TaxCode(models.Model):
     name = models.CharField(max_length=100, unique=True)
-    percentage = models.DecimalField(max_digits=5, decimal_places=2, validators=[MinValueValidator(0.0)])
+    percentage = models.DecimalField(
+                max_digits=5,
+                decimal_places=2,
+                validators=[MinValueValidator(Decimal('0.00'))]
+            )
+
     description = models.TextField(blank=True, null=True)
 
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_tax_codes')
-    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='updated_tax_codes')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_tax_codes')
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='updated_tax_codes')
 
     class Meta:
         verbose_name = "Tax Code"
@@ -268,8 +285,8 @@ class UOM(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_uoms')
-    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='updated_uoms')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_uoms')
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='updated_uoms')
 
     class Meta:
         verbose_name = "UOM"
@@ -296,8 +313,8 @@ class Warehouse(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_warehouses')
-    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='updated_warehouses')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_warehouses')
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='updated_warehouses')
 
     class Meta:
         verbose_name = "Warehouse"
@@ -320,8 +337,8 @@ class Size(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_sizes')
-    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='updated_sizes')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_sizes')
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='updated_sizes')
 
     class Meta:
         verbose_name = "Size"
@@ -344,8 +361,8 @@ class Color(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_colors')
-    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='updated_colors')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_colors')
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='updated_colors')
 
     class Meta:
         verbose_name = "Color"
@@ -372,8 +389,8 @@ class ProductSupplier(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_product_suppliers')
-    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='updated_product_suppliers')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_product_suppliers')
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='updated_product_suppliers')
 
     class Meta:
         verbose_name = "Product Supplier"
@@ -457,8 +474,8 @@ class Product(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_products')
-    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='updated_products')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_products')
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='updated_products')
 
     class Meta:
         verbose_name = "Product"
@@ -495,7 +512,7 @@ class Customer(models.Model):
         default='Active'
     )
     assigned_sales_rep = models.ForeignKey(
-        User,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -527,8 +544,8 @@ class Customer(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_customers')
-    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='updated_customers')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_customers')
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='updated_customers')
 
     class Meta:
         verbose_name = "Customer"
@@ -549,17 +566,18 @@ class Customer(models.Model):
         is_new = self.pk is None
         if is_new and not self.customer_id:
             last_customer = Customer.objects.order_by('-id').first()
-            last_id = int(last_customer.customer_id.replace('CUS', '')) + 1 if last_customer else 1
+            if last_customer and last_customer.customer_id:
+                last_id = int(last_customer.customer_id.replace('CUS', '')) + 1
+            else:
+                last_id = 1
+
             self.customer_id = f'CUS{last_id:04d}'
         super().save(*args, **kwargs)
 
 
-from django.db import models
-from django.contrib.auth import get_user_model
+
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db.models import UniqueConstraint, Index
-
-User = get_user_model()
 
 
 # All Choices
@@ -655,7 +673,7 @@ class Supplier(models.Model):
     status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='Active')
 
     # Workflow Status (for buttons: Save Draft / Submit)
-    workflow_status = models.CharField(max_length=15, choices=WORKFLOW_STATUS_CHOICES, blank=True, null=True)
+    workflow_status = models.CharField(max_length=15, choices=WORKFLOW_STATUS_CHOICES, default='Draft') 
 
     supplier_tier = models.CharField(max_length=20, choices=TIER_CHOICES, blank=True, null=True)
     product_details = models.TextField(blank=True, default='')
@@ -722,8 +740,8 @@ class Supplier(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_suppliers')
-    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='updated_suppliers')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_suppliers')
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='updated_suppliers')
 
     class Meta:
         verbose_name_plural = "Suppliers"
@@ -756,7 +774,7 @@ class Supplier(models.Model):
 class SupplierComment(models.Model):
     supplier = models.ForeignKey(Supplier, on_delete=models.CASCADE, related_name='comments')
     comment = models.TextField()
-    commented_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    commented_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     timestamp = models.DateTimeField(auto_now_add=True)
 
 
@@ -764,7 +782,7 @@ class SupplierAttachment(models.Model):
     supplier = models.ForeignKey(Supplier, on_delete=models.CASCADE, related_name='extra_attachments')
     file = models.FileField(upload_to='suppliers/extra_attachments/%Y/%m/%d/')
     description = models.CharField(max_length=300, blank=True, null=True)
-    uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -773,7 +791,7 @@ class SupplierAttachment(models.Model):
 
 class SupplierHistory(models.Model):
     supplier = models.ForeignKey(Supplier, on_delete=models.CASCADE, related_name='history')
-    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    changed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     changed_at = models.DateTimeField(auto_now_add=True)
     changes = models.TextField()  # e.g. "payment_terms changed from Net 30 to Custom: 45 days"
 
