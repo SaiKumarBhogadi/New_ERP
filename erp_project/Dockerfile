@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y \
 
 # Copy project files
 COPY . .
-
+COPY erp_project/require.txt /app/erp_project/require.txt
 # Install Python dependencies (IMPORTANT: require.txt)
 RUN python3 -m pip install --upgrade pip setuptools wheel && \
     python3 -m pip install --no-cache-dir -r erp_project/require.txt
@@ -41,4 +41,4 @@ RUN python3 -m pip install --upgrade pip setuptools wheel && \
 EXPOSE 8000
 
 # Run migrations and start Django
-CMD ["bash", "-c", "python3 erp_project/manage.py migrate && python3 erp_project/manage.py runserver 0.0.0.0:8000"]
+CMD ["bash", "-c", "python3 erp_project/manage.py makemigrations && python3 erp_project/manage.py migrate && python3 erp_project/manage.py runserver 0.0.0.0:8000"]
