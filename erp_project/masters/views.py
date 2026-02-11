@@ -33,6 +33,7 @@ from .serializers import (
     WarehouseSerializer, SizeSerializer, ColorSerializer, SupplierSerializer, ProductSerializer,
     CustomerSerializer,Supplier,SupplierHistory
 )
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 
 from core.permissions import RoleBasedPermission  # ← your real RBAC permission
 from .models import CustomUser, Branch, Department, Role
@@ -58,7 +59,6 @@ class StandardPagination(PageNumberPagination):
 # ────────────────────────────────────────────────
 # Users Management
 # ────────────────────────────────────────────────
-
 class ManageUsersListCreateView(generics.ListCreateAPIView):
     """
     List all users (paginated, searchable) + Create new user (admin only)
@@ -68,8 +68,8 @@ class ManageUsersListCreateView(generics.ListCreateAPIView):
 
     def get_serializer_class(self):
         if self.request.method == 'POST':
-            return CustomUserCreateSerializer  # ← Use this for creation (accepts IDs)
-        return CustomUserDetailSerializer      # ← Use this for list/detail (shows names)
+            return CustomUserCreateSerializer
+        return CustomUserDetailSerializer
 
     def get_queryset(self):
         qs = CustomUser.objects.select_related('branch', 'department', 'role').order_by('id')
@@ -86,23 +86,46 @@ class ManageUsersListCreateView(generics.ListCreateAPIView):
             )
         return qs
 
-    def perform_create(self, serializer):
-        if not self.request.user.is_superuser:
-            self.permission_denied(self.request, message="Only super admins can create users")
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
 
-        # Create user — serializer now generates/hashes password if needed
-        user = serializer.save()
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
 
-        # Email sending (password is available from serializer context if needed, but we generate here for email)
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Users fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = serializer.instance
+
+        # Your existing email logic remains unchanged
         password = get_random_string(length=8, allowed_chars='abcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*')
-        # Wait — to send raw password, we need to generate it here and set it again (hacky but works)
-        user.set_password(password)
-        user.save(update_fields=['password'])
+        instance.set_password(password)
+        instance.save(update_fields=['password'])
 
         context = {
-            'first_name': user.first_name or "User",
-            'email': user.email,
-            'password': password,  # raw for email
+            'first_name': instance.first_name or "User",
+            'email': instance.email,
+            'password': password,
             'site_name': 'Stackly ERP',
             'site_link': settings.FRONTEND_URL.rstrip('/') + '/login',
             'expiry_hours': 24,
@@ -115,23 +138,24 @@ class ManageUsersListCreateView(generics.ListCreateAPIView):
             subject=subject,
             body=html_message,
             from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[user.email],
+            to=[instance.email],
         )
         email.content_subtype = 'html'
 
         try:
             email.send(fail_silently=False)
-            logger.info(f"Welcome email sent successfully to {user.email}")
+            logger.info(f"Welcome email sent successfully to {instance.email}")
         except Exception as e:
-            logger.error(f"Failed to send welcome email to {user.email}: {str(e)}")
+            logger.error(f"Failed to send welcome email to {instance.email}: {str(e)}")
 
-        # Return detail response (with nested names)
-        return Response(CustomUserDetailSerializer(user).data, status=status.HTTP_201_CREATED)
+        return Response({
+            "message": "User created successfully",
+            "data": CustomUserDetailSerializer(instance).data
+        }, status=status.HTTP_201_CREATED)
 
 
 class ManageUserDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = CustomUser.objects.all()
-    serializer_class = CustomUserDetailSerializer
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     lookup_field = 'pk'
 
@@ -140,10 +164,30 @@ class ManageUserDetailView(generics.RetrieveUpdateDestroyAPIView):
             return CustomUserUpdateSerializer
         return CustomUserDetailSerializer
 
-    def perform_destroy(self, instance):
-        # Optional: add soft-delete or check permissions
-        instance.delete()
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "User fetched successfully",
+            "data": serializer.data
+        })
 
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', True)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            "message": "User updated successfully"
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return Response({
+            "message": "User deleted successfully"
+        })
 
 # ────────────────────────────────────────────────
 # Branches
@@ -155,12 +199,77 @@ class BranchListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     pagination_class = StandardPagination
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Branches fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = serializer.instance
+        return Response({
+            "message": "Branch created successfully"
+        }, status=status.HTTP_201_CREATED)
+
 
 class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Branch.objects.all()
     serializer_class = BranchSerializer
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     lookup_field = 'pk'
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Branch fetched successfully",
+            "data": serializer.data
+        })
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', True)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            "message": "Branch updated successfully"
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return Response({
+            "message": "Branch deleted successfully"
+        })
 
 
 # ────────────────────────────────────────────────
@@ -186,7 +295,6 @@ class DepartmentListView(generics.ListAPIView):
                 Q(department_name__icontains=search)
             )
 
-        # For dropdown mode, override serializer in get_serializer
         self.dropdown_mode = dropdown
         return qs
 
@@ -200,15 +308,45 @@ class DepartmentListView(generics.ListAPIView):
         context['include_roles'] = self.request.query_params.get('include_roles', 'true').lower() == 'true'
         return context
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Departments fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
+
 
 class DepartmentCreateView(generics.CreateAPIView):
     serializer_class = DepartmentCreateWithRolesSerializer
     permission_classes = [IsAuthenticated, RoleBasedPermission]
 
-    def perform_create(self, serializer):
-        department = serializer.save()
-        # Return full detail with roles
-        return Response(DepartmentDetailSerializer(department).data, status=status.HTTP_201_CREATED)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = serializer.instance
+        return Response({
+            "message": "Department created successfully",
+            "data": DepartmentDetailSerializer(instance).data
+        }, status=status.HTTP_201_CREATED)
 
 
 class DepartmentDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -221,15 +359,37 @@ class DepartmentDetailView(generics.RetrieveUpdateDestroyAPIView):
             return DepartmentUpdateWithRolesSerializer
         return DepartmentDetailSerializer
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Department fetched successfully",
+            "data": serializer.data
+        })
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', True)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            "message": "Department updated successfully"
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return Response({
+            "message": "Department deleted successfully"
+        })
+
 
 # ────────────────────────────────────────────────
 # Roles – READ-ONLY (no create/update/delete)
 # ────────────────────────────────────────────────
 
 class RoleListView(generics.ListAPIView):
-    """
-    Read-only list of roles (filtered by department if needed)
-    """
     serializer_class = RoleReadSerializer
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     pagination_class = StandardPagination
@@ -241,15 +401,45 @@ class RoleListView(generics.ListAPIView):
             qs = qs.filter(department_id=department_id)
         return qs
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Roles fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
+
 
 class RoleDetailView(generics.RetrieveAPIView):
-    """
-    Read-only single role detail
-    """
     queryset = Role.objects.select_related('department', 'branch').all()
     serializer_class = RoleReadSerializer
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     lookup_field = 'pk'
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Role fetched successfully",
+            "data": serializer.data
+        })
 
 
 
@@ -268,6 +458,14 @@ from .serializers import (
 # ────────────────────────────────────────────────
 # Product Views
 # ────────────────────────────────────────────────
+from rest_framework import generics, status
+from rest_framework.response import Response
+from django.core.paginator import Paginator
+from django.shortcuts import get_object_or_404
+from django.db.models import Q
+from .models import Product
+from .serializers import ProductSerializer  # assuming this is your main serializer
+
 
 class ProductListCreateView(generics.ListCreateAPIView):
     queryset = Product.objects.select_related(
@@ -290,9 +488,40 @@ class ProductListCreateView(generics.ListCreateAPIView):
             )
         return qs
 
-    def perform_create(self, serializer):
-        # NO created_by here — serializer handles it
-        serializer.save()  
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Products fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = serializer.instance
+        return Response({
+            "message": "Product created successfully",
+            "data": ProductSerializer(instance).data
+        }, status=status.HTTP_201_CREATED)
 
 
 class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -306,11 +535,30 @@ class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     lookup_field = 'pk'
 
-    def perform_update(self, serializer):
-        serializer.save()
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Product fetched successfully",
+            "data": serializer.data
+        })
 
-    def perform_destroy(self, instance):
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', True)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            "message": "Product updated successfully"
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
         instance.delete()
+        return Response({
+            "message": "Product deleted successfully"
+        })
 
 
 # ────────────────────────────────────────────────
@@ -323,8 +571,42 @@ class CategoryListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     pagination_class = StandardPagination
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Categories fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
+
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = serializer.instance
+        return Response({
+            "message": "Category created successfully",
+            "data": CategorySerializer(instance).data
+        }, status=status.HTTP_201_CREATED)
 
 
 class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -333,8 +615,31 @@ class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     lookup_field = 'pk'
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Category fetched successfully",
+            "data": serializer.data
+        })
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', True)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            "message": "Category updated successfully"
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return Response({
+            "message": "Category deleted successfully"
+        })
 
 
 # ────────────────────────────────────────────────
@@ -347,8 +652,41 @@ class TaxCodeListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     pagination_class = StandardPagination
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Tax Codes fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = serializer.instance
+        return Response({
+            "message": "Tax Code created successfully",
+            "data": TaxCodeSerializer(instance).data
+        }, status=status.HTTP_201_CREATED)
 
 
 class TaxCodeDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -357,8 +695,31 @@ class TaxCodeDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     lookup_field = 'pk'
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Tax Code fetched successfully",
+            "data": serializer.data
+        })
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', True)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            "message": "Tax Code updated successfully"
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return Response({
+            "message": "Tax Code deleted successfully"
+        })
 
 
 # ────────────────────────────────────────────────
@@ -371,8 +732,41 @@ class UOMListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     pagination_class = StandardPagination
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "UOMs fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = serializer.instance
+        return Response({
+            "message": "UOM created successfully",
+            "data": UOMSerializer(instance).data
+        }, status=status.HTTP_201_CREATED)
 
 
 class UOMDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -381,8 +775,31 @@ class UOMDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     lookup_field = 'pk'
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "UOM fetched successfully",
+            "data": serializer.data
+        })
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', True)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            "message": "UOM updated successfully"
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return Response({
+            "message": "UOM deleted successfully"
+        })
 
 
 # ────────────────────────────────────────────────
@@ -395,8 +812,41 @@ class WarehouseListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     pagination_class = StandardPagination
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Warehouses fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = serializer.instance
+        return Response({
+            "message": "Warehouse created successfully",
+            "data": WarehouseSerializer(instance).data
+        }, status=status.HTTP_201_CREATED)
 
 
 class WarehouseDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -405,8 +855,31 @@ class WarehouseDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     lookup_field = 'pk'
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Warehouse fetched successfully",
+            "data": serializer.data
+        })
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', True)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            "message": "Warehouse updated successfully"
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return Response({
+            "message": "Warehouse deleted successfully"
+        })
 
 
 # ────────────────────────────────────────────────
@@ -419,8 +892,41 @@ class SizeListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     pagination_class = StandardPagination
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Sizes fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = serializer.instance
+        return Response({
+            "message": "Size created successfully",
+            "data": SizeSerializer(instance).data
+        }, status=status.HTTP_201_CREATED)
 
 
 class SizeDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -429,8 +935,31 @@ class SizeDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     lookup_field = 'pk'
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Size fetched successfully",
+            "data": serializer.data
+        })
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', True)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            "message": "Size updated successfully"
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return Response({
+            "message": "Size deleted successfully"
+        })
 
 
 # ────────────────────────────────────────────────
@@ -443,8 +972,41 @@ class ColorListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     pagination_class = StandardPagination
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Colors fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = serializer.instance
+        return Response({
+            "message": "Color created successfully",
+            "data": ColorSerializer(instance).data
+        }, status=status.HTTP_201_CREATED)
 
 
 class ColorDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -453,8 +1015,31 @@ class ColorDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     lookup_field = 'pk'
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Color fetched successfully",
+            "data": serializer.data
+        })
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', True)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            "message": "Color updated successfully"
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return Response({
+            "message": "Color deleted successfully"
+        })
 
 
 # ────────────────────────────────────────────────
@@ -467,8 +1052,41 @@ class ProductSupplierListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     pagination_class = StandardPagination
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Product Suppliers fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = serializer.instance
+        return Response({
+            "message": "Product Supplier created successfully",
+            "data": ProductSupplierSerializer(instance).data
+        }, status=status.HTTP_201_CREATED)
 
 
 class ProductSupplierDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -477,8 +1095,32 @@ class ProductSupplierDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     lookup_field = 'pk'
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Product Supplier fetched successfully",
+            "data": serializer.data
+        })
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', True)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            "message": "Product Supplier updated successfully"
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return Response({
+            "message": "Product Supplier deleted successfully"
+        })
+    
 
 class ProductImportView(APIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
@@ -604,6 +1246,13 @@ class ProductImportConfirmView(APIView):
             'message': 'Import complete. Review product data.'
         }, status=201)
 
+from rest_framework import generics, status
+from rest_framework.response import Response
+from django.core.paginator import Paginator
+from django.db.models import Q
+from .models import Customer
+from .serializers import CustomerSerializer  # assuming this is your main serializer
+
 
 class CustomerListCreateView(generics.ListCreateAPIView):
     queryset = Customer.objects.all().order_by('-last_edit_date')
@@ -625,10 +1274,41 @@ class CustomerListCreateView(generics.ListCreateAPIView):
             )
         return qs
 
-    def perform_create(self, serializer):
-        serializer.save()
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
 
-from . import models
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Customers fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = serializer.instance
+        return Response({
+            "message": "Customer created successfully",
+            "data": CustomerSerializer(instance).data
+        }, status=status.HTTP_201_CREATED)
+
 
 class CustomerDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Customer.objects.all()
@@ -636,12 +1316,30 @@ class CustomerDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
     lookup_field = 'pk'
 
-    def perform_update(self, serializer):
-        serializer.save()
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Customer fetched successfully",
+            "data": serializer.data
+        })
 
-    def perform_destroy(self, instance):
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', True)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            "message": "Customer updated successfully"
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
         instance.delete()
-
+        return Response({
+            "message": "Customer deleted successfully"
+        })
 
 
 
@@ -979,12 +1677,12 @@ from .serializers import (
     SupplierSerializer, SupplierCreateUpdateSerializer,
     SupplierCommentSerializer, SupplierAttachmentSerializer,SupplierHistorySerializer
 )
+from rest_framework.parsers import MultiPartParser, FormParser
 
 class StandardPagination(PageNumberPagination):
     page_size = 10
     page_size_query_param = 'per_page'
     max_page_size = 100
-
 class SupplierListCreateView(generics.ListCreateAPIView):
     queryset = Supplier.objects.all().order_by('-created_at')
     serializer_class = SupplierCreateUpdateSerializer
@@ -1005,18 +1703,40 @@ class SupplierListCreateView(generics.ListCreateAPIView):
             qs = qs.filter(status=status)
         return qs
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = SupplierSerializer(page, many=True)  # Use full serializer for list
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Suppliers fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
+
     def create(self, request, *args, **kwargs):
-        # Use input serializer for validation
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
-
-        # Re-serialize the saved instance with FULL serializer
         instance = serializer.instance
-        full_serializer = SupplierSerializer(instance)  # ← this gives id, supplier_id, timestamps, etc.
-
-        headers = self.get_success_headers(full_serializer.data)
-        return Response(full_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        return Response({
+            "message": "Supplier created successfully",
+            "data": SupplierSerializer(instance).data
+        }, status=status.HTTP_201_CREATED)
 
 
 class SupplierDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -1029,34 +1749,41 @@ class SupplierDetailView(generics.RetrieveUpdateDestroyAPIView):
             return SupplierSerializer  # full details for GET
         return SupplierCreateUpdateSerializer  # input for PATCH/PUT
 
-    def perform_update(self, serializer):
-        serializer.save()
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Supplier fetched successfully",
+            "data": serializer.data
+        })
 
     def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', True)  # PATCH is partial
+        partial = kwargs.pop('partial', True)
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
+        return Response({
+            "message": "Supplier updated successfully"
+        })
 
-        # Re-serialize with FULL serializer for response
-        full_serializer = SupplierSerializer(instance)
-
-        return Response(full_serializer.data)
-
-    def perform_destroy(self, instance):
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
         if instance.workflow_status != 'Draft':
-            self.permission_denied(self.request, message="Cannot delete submitted suppliers")
+            return Response({'message': "Cannot delete submitted suppliers"}, status=403)
         instance.delete()
+        return Response({
+            "message": "Supplier deleted successfully"
+        })
 
 
 class SupplierPDFView(APIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
 
     def get(self, request, pk):
-        supplier = Supplier.objects.get(pk=pk)
+        supplier = get_object_or_404(Supplier, pk=pk)
         if supplier.workflow_status != 'Submitted':
-            return Response({'error': 'PDF only available after submission'}, status=403)
+            return Response({'message': 'PDF only available after submission'}, status=403)
 
         context = {
             'supplier': supplier,
@@ -1078,20 +1805,20 @@ class SupplierEmailView(APIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
 
     def post(self, request, pk):
-        supplier = Supplier.objects.get(pk=pk)
+        supplier = get_object_or_404(Supplier, pk=pk)
         if supplier.workflow_status != 'Submitted':
-            return Response({'error': 'Email only available after submission'}, status=403)
+            return Response({'message': 'Email only available after submission'}, status=403)
 
         email = request.data.get('email')
         if not email:
-            return Response({'error': 'Email is required'}, status=400)
+            return Response({'message': 'Email is required'}, status=400)
 
         html_content = render_to_string('emails/supplier_email.html', {'supplier': supplier})
         msg = EmailMessage(f"Supplier {supplier.supplier_id}", html_content, to=[email])
         msg.content_subtype = "html"
         msg.send()
 
-        return Response({'message': 'Email sent successfully'}, status=200)
+        return Response({"message": "Email sent successfully"})
 
 
 class SupplierCommentView(APIView):
@@ -1100,7 +1827,10 @@ class SupplierCommentView(APIView):
     def get(self, request, pk):
         comments = SupplierComment.objects.filter(supplier_id=pk)
         serializer = SupplierCommentSerializer(comments, many=True)
-        return Response(serializer.data)
+        return Response({
+            "message": "Comments fetched successfully",
+            "data": serializer.data
+        })
 
     def post(self, request, pk):
         data = request.data.copy()
@@ -1108,20 +1838,25 @@ class SupplierCommentView(APIView):
         data["commented_by"] = request.user.id
 
         serializer = SupplierCommentSerializer(data=data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=201)
-
-        return Response(serializer.errors, status=400)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({
+            "message": "Comment added successfully",
+            "data": serializer.data
+        }, status=status.HTTP_201_CREATED)
 
 
 class SupplierAttachmentView(APIView):
     permission_classes = [IsAuthenticated, RoleBasedPermission]
+    parser_classes = (MultiPartParser, FormParser)
 
     def get(self, request, pk):
         attachments = SupplierAttachment.objects.filter(supplier_id=pk)
         serializer = SupplierAttachmentSerializer(attachments, many=True)
-        return Response(serializer.data)
+        return Response({
+            "message": "Attachments fetched successfully",
+            "data": serializer.data
+        })
 
     def post(self, request, pk):
         data = request.data.copy()
@@ -1129,11 +1864,12 @@ class SupplierAttachmentView(APIView):
         data["uploaded_by"] = request.user.id
 
         serializer = SupplierAttachmentSerializer(data=data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=201)
-
-        return Response(serializer.errors, status=400)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({
+            "message": "Attachment uploaded successfully",
+            "data": serializer.data
+        }, status=status.HTTP_201_CREATED)
 
 
 class SupplierHistoryView(APIView):
@@ -1142,4 +1878,7 @@ class SupplierHistoryView(APIView):
     def get(self, request, pk):
         history = SupplierHistory.objects.filter(supplier_id=pk)
         serializer = SupplierHistorySerializer(history, many=True)
-        return Response(serializer.data)
+        return Response({
+            "message": "History fetched successfully",
+            "data": serializer.data
+        })

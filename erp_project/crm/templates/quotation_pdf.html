@@ -3,285 +3,175 @@
 <head>
 <meta charset="UTF-8">
 <title>Quotation {{ quotation.quotation_id }}</title>
+
 <style>
-  @page {
-    size: A4;
-    margin: 12mm 10mm;
-    @top-center   { content: "Quotation {{ quotation.quotation_id }}"; font-size:9pt; }
-    @bottom-center{ content: "Page " counter(page) " of " counter(pages); font-size:9pt; }
-  }
+    body {
+        font-family: Arial, sans-serif;
+        margin: 40px;
+        color: #333;
+    }
 
-  body{
-    font-family:"Helvetica Neue",Arial,Helvetica,sans-serif;
-    font-size:12px;
-    color:#222;
-    line-height:1.45;
-    margin:0;
-  }
+    .header {
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 2px solid #444;
+        padding-bottom: 10px;
+        margin-bottom: 20px;
+    }
 
-  .container{
-    width:100%;
-    padding:0 5px;
-    box-sizing:border-box;
-  }
+    .title {
+        font-size: 26px;
+        font-weight: bold;
+    }
 
-  /* ---------- HEADER ---------- */
-  header{
-    display:flex;
-    justify-content:space-between;
-    align-items:flex-start;
-    border-bottom:3px solid #003087;      /* dark‑blue */
-    padding-bottom:8px;
-    margin-bottom:12px;
-    page-break-after:avoid;
-  }
-  .company h2{
-    margin:0;
-    font-size:19px;
-    color:#003087;
-  }
-  .company p{margin:1px 0; font-size:10.5px;}
-  .header-right{font-size:10.5px; text-align:right;}
+    .section {
+        margin-top: 20px;
+    }
 
-  /* ---------- TITLE ---------- */
-  .title{
-    text-align:center;
-    font-size:21px;
-    font-weight:bold;
-    color:#003087;
-    margin:8px 0 14px;
-    text-transform:uppercase;
-    page-break-after:avoid;
-  }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+    }
 
-  /* ---------- DETAILS ---------- */
-  .details{
-    width:100%;
-    border-collapse:collapse;
-    margin-bottom:12px;
-    page-break-inside:avoid;
-  }
-  .details td{
-    padding:4px 8px;
-    vertical-align:top;
-    font-size:11px;
-  }
-  .details .label{
-    font-weight:bold;
-    color:#444;
-    width:25%;
-  }
+    th {
+        background: #f5f5f5;
+        font-weight: bold;
+    }
 
-  /* ---------- ITEMS TABLE ---------- */
-  table.items{
-    width:100%;
-    border-collapse:collapse;
-    margin-bottom:12px;
-    page-break-inside:avoid;
-  }
-  table.items th,
-  table.items td{
-    border:1px solid #bbb;
-    padding:5px 6px;
-    font-size:11px;
-    box-sizing:border-box;
-  }
-  table.items th{
-    background:#003087;                 /* dark‑blue header */
-    color:#fff;
-    font-weight:normal;
-  }
-  table.items td{
-    white-space:normal;
-    word-wrap:break-word;
-  }
-  table.items td:nth-child(1){min-width:130px;}   /* product column */
+    th, td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        font-size: 13px;
+    }
 
-  /* ---------- TOTALS ---------- */
-  .totals-wrapper{
-    float:right;
-    width:44%;
-    page-break-inside:avoid;
-  }
-  table.totals{
-    width:100%;
-    border-collapse:collapse;
-    background:#f5f7fa;
-    margin-top:6px;
-  }
-  table.totals td{
-    padding:4px 8px;
-    font-size:11px;
-    border:none;
-  }
-  .totals .label{
-    text-align:right;
-    font-weight:bold;
-    color:#222;
-  }
-  .totals .value{
-    text-align:right;
-  }
-  .grand-total td{
-    background:#003087;
-    color:#fff;
-    font-weight:bold;
-  }
+    .right { text-align: right; }
+    .center { text-align: center; }
 
-  /* ---------- SECTION TITLES ---------- */
-  .section-title{
-    color:#003087;
-    font-weight:bold;
-    font-size:13px;
-    margin:18px 0 5px;
-    border-bottom:1px solid #003087;
-    padding-bottom:3px;
-    page-break-after:avoid;
-  }
+    .totals {
+        width: 40%;
+        margin-left: auto;
+        margin-top: 20px;
+    }
 
-  /* ---------- TERMS / COMMENTS ---------- */
-  .terms,.comments{
-    font-size:11px;
-    margin-top:12px;
-    page-break-inside:avoid;
-  }
-  .terms ol,.comments ul{
-    padding-left:18px;
-    margin:4px 0;
-  }
+    .totals td {
+        border: none;
+        padding: 5px;
+    }
 
-  /* ---------- FOOTER ---------- */
-  footer{
-    margin-top:30px;
-    padding-top:8px;
-    border-top:1px solid #ccc;
-    font-size:9px;
-    color:#666;
-    text-align:center;
-    page-break-before:avoid;
-  }
+    .grand-total {
+        font-size: 16px;
+        font-weight: bold;
+        border-top: 2px solid #000;
+    }
 
-  .clearfix::after{content:"";display:table;clear:both;}
+    .muted {
+        color: #777;
+        font-size: 12px;
+    }
 </style>
 </head>
 
 <body>
-<div class="container">
 
-  <!-- HEADER -->
-  <header>
-    <div class="company">
-      <h2>Stackly ERP</h2>
-      <p>123 Business Avenue, Mumbai, India</p>
-      <p>Email: contact@stacklyerp.com | Phone: +91 123 456 7890</p>
-      <p>GSTIN: 27ABCDE1234F2Z5</p>
+<div class="header">
+    <div>
+        <div class="title">QUOTATION</div>
+        <div class="muted">Quotation ID: {{ quotation.quotation_id }}</div>
+        <div class="muted">Date: {{ quotation.quotation_date }}</div>
     </div>
-    <div class="header-right">
-      <strong>Date:</strong> {{ quotation.quotation_date|date:"M d, Y" }}<br>
-      <strong>Quotation ID:</strong> {{ quotation.quotation_id }}<br>
-      <strong>Status:</strong> {{ quotation.status }}
+
+    <div>
+        <strong>Status:</strong> {{ quotation.status }}<br>
+        <strong>Expiry:</strong> {{ quotation.expiry_date|default:"N/A" }}
     </div>
-  </header>
-
-  <div class="title">Quotation</div>
-
-  <!-- DETAILS -->
-  <table class="details">
-    <tr>
-      <td class="label">Customer Name:</td><td>{{ quotation.customer_name }}</td>
-      <td class="label">Customer PO Ref:</td><td>{{ quotation.customer_po_referance|default:"—" }}</td>
-    </tr>
-    <tr>
-      <td class="label">Sales Representative:</td><td>{{ quotation.sales_rep|default:"—" }}</td>
-      <td class="label">Quotation Type:</td><td>{{ quotation.quotation_type|default:"—" }}</td>
-    </tr>
-    <tr>
-      <td class="label">Currency:</td><td>{{ quotation.currency|default:"INR" }}</td>
-      <td class="label">Payment Terms:</td><td>{{ quotation.payment_terms|default:"—" }}</td>
-    </tr>
-    <tr>
-      <td class="label">Expected Delivery:</td><td>{{ quotation.expected_delivery|date:"M d, Y"|default:"—" }}</td>
-      <td class="label">Expiry Date:</td><td>{{ quotation.expiry_date|date:"M d, Y"|default:"—" }}</td>
-    </tr>
-    <tr>
-      <td class="label">Revision Count:</td><td>{{ quotation.revise_count }}</td>
-      <td></td><td></td>
-    </tr>
-  </table>
-
-  <!-- ITEMS -->
-  <table class="items">
-    <thead>
-      <tr>
-        <th>Product</th>
-        <th>UOM</th>
-        <th>Qty</th>
-        <th>Unit Price</th>
-        <th>Discount (%)</th>
-        <th>Tax (%)</th>
-        <th>Total</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in items %}
-      <tr>
-        <td>{{ item.product_name }}</td>
-        <td>{{ item.uom.name }}</td>
-        <td>{{ item.quantity }}</td>
-        <td>{{ item.unit_price|floatformat:2 }}</td>
-        <td>{{ item.discount|floatformat:2 }}</td>
-        <td>{{ item.tax|floatformat:2 }}</td>
-        <td>{{ item.total|floatformat:2 }}</td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="7" style="text-align:center;color:#999;">No items</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  <!-- TOTALS -->
-  <div class="clearfix"></div>
-  <div class="totals-wrapper">
-    <table class="totals">
-      <tr><td class="label">Subtotal:</td><td class="value">{{ subtotal|floatformat:2 }}</td></tr>
-      <tr><td class="label">Global Discount ({{ quotation.globalDiscount }}%):</td>
-          <td class="value">-{{ global_discount_amount|floatformat:2 }}</td></tr>
-      <tr><td class="label">Shipping Charges:</td><td class="value">{{ quotation.shippingCharges|floatformat:2 }}</td></tr>
-      <tr class="grand-total"><td class="label">Grand Total:</td><td class="value">{{ grand_total|floatformat:2 }}</td></tr>
-    </table>
-  </div>
-  <div class="clearfix"></div>
-
-  <!-- TERMS -->
-  <div class="terms">
-    <h4 class="section-title">Terms &amp; Conditions</h4>
-    <ol>
-      <li>Payment is due as per the agreed terms ({{ quotation.payment_terms|default:"—" }}).</li>
-      <li>Prices are subject to change after the expiry date ({{ quotation.expiry_date|date:"M d, Y"|default:"—" }}).</li>
-      <li>All goods remain property of Stackly ERP until fully paid.</li>
-      <li>For any queries, contact: contact@stacklyerp.com</li>
-    </ol>
-  </div>
-
-  <!-- COMMENTS -->
-  {% if comments %}
-  <div class="comments">
-    <h4 class="section-title">Comments</h4>
-    <ul>
-      {% for c in comments %}
-      <li><strong>{{ c.person_name }}:</strong> {{ c.comment }} <em>({{ c.timestamp|date:"M d, Y H:i" }})</em></li>
-      {% endfor %}
-    </ul>
-  </div>
-  {% endif %}
-
-  <!-- FOOTER -->
-  <footer>
-    Generated on {{ quotation.created_at|date:"M d, Y H:i" }} |
-    Revision: {{ quotation.revise_count }} |
-    © {{ now|date:"Y" }} Stackly ERP — All Rights Reserved
-  </footer>
-
 </div>
+
+<div class="section">
+    <strong>Customer</strong><br>
+    {{ quotation.customer.first_name }} {{ quotation.customer.last_name }}<br>
+    {{ quotation.customer.company_name }}<br>
+    {{ quotation.customer.email }}<br>
+    {{ quotation.customer.phone_number }}
+</div>
+
+<div class="section">
+    <strong>Details</strong><br>
+    Sales Rep: {{ quotation.sales_rep|default:"N/A" }}<br>
+    PO Reference: {{ quotation.customer_po_reference|default:"N/A" }}<br>
+    Payment Terms: {{ quotation.payment_terms|default:"N/A" }}<br>
+    Currency: {{ quotation.currency }}
+</div>
+
+<div class="section">
+    <strong>Items</strong>
+    <table>
+        <thead>
+        <tr>
+            <th>Product</th>
+            <th>UOM</th>
+            <th class="right">Unit Price</th>
+            <th class="right">Discount %</th>
+            <th class="right">Tax %</th>
+            <th class="center">Qty</th>
+            <th class="right">Total</th>
+        </tr>
+        </thead>
+
+        <tbody>
+        {% for item in quotation.items.all %}
+        <tr>
+            <td>{{ item.product_name }} ({{ item.product_id_display }})</td>
+            <td>{{ item.uom.name }}</td>
+            <td class="right">{{ item.unit_price }}</td>
+            <td class="right">{{ item.discount }}</td>
+            <td class="right">{{ item.tax_rate }}</td>
+            <td class="center">{{ item.quantity }}</td>
+            <td class="right">{{ item.total }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="7" class="center">No items</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<table class="totals">
+    <tr>
+        <td>Subtotal</td>
+        <td class="right">{{ quotation.subtotal }}</td>
+    </tr>
+    <tr>
+        <td>Tax</td>
+        <td class="right">{{ quotation.tax_summary }}</td>
+    </tr>
+    <tr>
+        <td>Shipping</td>
+        <td class="right">{{ quotation.shipping_charges }}</td>
+    </tr>
+    <tr>
+        <td>Rounding</td>
+        <td class="right">{{ quotation.rounding_adjustment }}</td>
+    </tr>
+    <tr class="grand-total">
+        <td>Grand Total</td>
+        <td class="right">{{ quotation.grand_total }}</td>
+    </tr>
+</table>
+
+<div class="section">
+    <strong>Comments</strong>
+    {% for comment in quotation.comments.all %}
+        <p class="muted">
+            {{ comment.comment_by }} — {{ comment.timestamp }}
+        </p>
+        <p>{{ comment.comment }}</p>
+    {% empty %}
+        <p class="muted">No comments</p>
+    {% endfor %}
+</div>
+
 </body>
 </html>

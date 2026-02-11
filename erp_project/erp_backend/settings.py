@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 from pathlib import Path
 from decouple import config
+<<<<<<< HEAD
 import pymysql
 import environ
  
@@ -22,6 +23,9 @@ env = environ.Env()
  
 # Read .env file
 environ.Env.read_env(BASE_DIR / '.env')
+=======
+import pymysql 
+>>>>>>> upstream/main
 pymysql.install_as_MySQLdb()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.

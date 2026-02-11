@@ -2,382 +2,400 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
 from .models import Enquiry, EnquiryItem
-from .serializers import EnquirySerializer, EnquiryCreateSerializer
-from django.core.exceptions import ObjectDoesNotExist
-
-class EnquiryListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    # LIST ALL ENQUIRIES FOR LOGGED-IN USER
-    def get(self, request):
-        enquiries = Enquiry.objects.filter(user=request.user).order_by('-created_at')
-        serializer = EnquirySerializer(enquiries, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    # CREATE NEW ENQUIRY
-    def post(self, request):
-        serializer = EnquiryCreateSerializer(data=request.data)
-        if serializer.is_valid():
-            enquiry = serializer.save(user=request.user)
-            return Response(EnquirySerializer(enquiry).data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    # DELETE ENQUIRY
-    def delete(self, request):
-        enquiry_id = request.data.get("id")
-        if not enquiry_id:
-            return Response({"error": "id required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            enquiry = Enquiry.objects.get(id=enquiry_id, user=request.user)
-            enquiry.delete()
-            return Response({"message": "Deleted successfully"}, status=status.HTTP_200_OK)
-        except Enquiry.DoesNotExist:
-            return Response({"error": "Enquiry not found"}, status=status.HTTP_404_NOT_FOUND)
-
-class EnquiryDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    # GET SINGLE ENQUIRY
-    def get(self, request, pk):
-        try:
-            enquiry = Enquiry.objects.get(id=pk, user=request.user)
-            serializer = EnquirySerializer(enquiry)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Enquiry.DoesNotExist:
-            return Response({"error": "Enquiry not found"}, status=status.HTTP_404_NOT_FOUND)
-
-    # UPDATE SINGLE ENQUIRY
-    def put(self, request, pk):
-        try:
-            enquiry = Enquiry.objects.get(id=pk, user=request.user)
-            serializer = EnquiryCreateSerializer(enquiry, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(EnquirySerializer(enquiry).data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except Enquiry.DoesNotExist:
-            return Response({"error": "Enquiry not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        
-
-
-from rest_framework.views import APIView
+from rest_framework import generics, status
 from rest_framework.response import Response
-from rest_framework import status, permissions
-from .models import Quotation, QuotationItem, QuotationAttachment, QuotationComment, QuotationHistory
-from .serializers import QuotationSerializer, QuotationCreateSerializer, QuotationAttachmentSerializer, QuotationCommentSerializer, QuotationHistorySerializer, QuotationItemSerializer
-from django.core.exceptions import ObjectDoesNotExist
+from rest_framework.permissions import IsAuthenticated
+from core.permissions import RoleBasedPermission
+from .models import Enquiry
+from .serializers import EnquirySerializer, EnquiryWriteSerializer
+
+
+class EnquiryListCreateView(generics.ListCreateAPIView):
+    queryset = Enquiry.objects.select_related('user').order_by('-created_at')
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+
+    def get_serializer_class(self):
+        if self.request.method == 'GET':
+            return EnquirySerializer
+        return EnquiryWriteSerializer
+
+    def get_queryset(self):
+        if self.request.user.is_superuser or self.request.user.role.role.lower() == 'admin':
+            return Enquiry.objects.all()
+        return Enquiry.objects.filter(user=self.request.user)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Enquiries fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = serializer.instance
+        detail_serializer = EnquirySerializer(instance, context={'request': request})
+        return Response({
+            "message": "Enquiry created successfully",
+            "data": detail_serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+
+class EnquiryDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Enquiry.objects.select_related('user')
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
+
+    def get_serializer_class(self):
+        if self.request.method == 'GET':
+            return EnquirySerializer
+        return EnquiryWriteSerializer
+
+    def get_queryset(self):
+        if self.request.user.is_superuser or self.request.user.role.role.lower() == 'admin':
+            return Enquiry.objects.all()
+        return Enquiry.objects.filter(user=self.request.user)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Enquiry fetched successfully",
+            "data": serializer.data
+        })
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', True)  # partial update works perfectly
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            "message": "Enquiry updated successfully"
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return Response({
+            "message": "Enquiry deleted successfully"
+        })
+
+# views.py (replace relevant parts)
+
+from rest_framework import generics, status
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from core.permissions import RoleBasedPermission
+from rest_framework.views import APIView
 from django.http import HttpResponse
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from django.core.mail import EmailMessage
 from django.template.loader import render_to_string
-import io
+from weasyprint import HTML
+from django.core.mail import EmailMessage
+from django.conf import settings
+from io import BytesIO
+from .models import Quotation, QuotationItem, QuotationAttachment, QuotationComment, QuotationHistory, QuotationRevision
+from .serializers import QuotationSerializer, QuotationWriteSerializer, QuotationRevisionSerializer
 
-class QuotationListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+class QuotationListCreateView(generics.ListCreateAPIView):
+    queryset = Quotation.objects.select_related('customer', 'sales_rep').order_by('-created_at')
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
 
-    def get(self, request):
-        quotations = Quotation.objects.all().order_by('-created_at')
-        serializer = QuotationSerializer(quotations, many=True)
-        return Response(serializer.data)
+    def get_queryset(self):
+        expired = self.queryset.filter(
+            expiry_date__lt=timezone.now().date(),
+            status__in=['Draft', 'Submitted', 'Approved']
+        )
+        expired.update(status='Expired')
+        return self.queryset
 
-    def post(self, request):
-        serializer = QuotationCreateSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            quotation = serializer.save()
-            return Response(QuotationSerializer(quotation).data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return QuotationWriteSerializer
+        return QuotationSerializer
 
-    
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
 
-class QuotationDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
 
-    def get(self, request, pk):
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Quotations fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
+
+    def create(self, request, *args, **kwargs):
+        write_serializer = QuotationWriteSerializer(
+            data=request.data,
+            context={'request': request}
+        )
+        write_serializer.is_valid(raise_exception=True)
+        quotation = write_serializer.save()
+
+        read_serializer = QuotationSerializer(quotation)
+        return Response({
+            "message": "Quotation created successfully",
+            "data": read_serializer.data
+        }, status=201)
+
+
+class QuotationDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Quotation.objects.select_related('customer', 'sales_rep')
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
+
+    def get_serializer_class(self):
+        if self.request.method == 'GET':
+            return QuotationSerializer
+        return QuotationWriteSerializer
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Quotation fetched successfully",
+            "data": serializer.data
+        })
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        serializer = QuotationWriteSerializer(
+            instance,
+            data=request.data,
+            partial=True,
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        quotation = serializer.save()
+
+        return Response({
+            "message": "Quotation updated successfully"
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return Response({
+            "message": "Quotation deleted successfully"
+        })
+
+
+class QuotationActionView(APIView):
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+
+    def post(self, request, pk):
         try:
-            quotation = Quotation.objects.get(id=pk, user=request.user)
-            serializer = QuotationSerializer(quotation)
-            return Response(serializer.data)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def put(self, request, pk):
-        try:
-            quotation = Quotation.objects.get(id=pk, user=request.user)
+            quotation = Quotation.objects.get(id=pk)
             action = request.data.get('action')
+
+            allowed_transitions = {
+                'Draft': ['save_draft', 'submit'],
+                'Submitted': ['approve', 'reject', 'revise'],
+                'Approved': ['convert_to_so'],
+                'Rejected': [],
+                'Converted to SO': [],
+                'Expired': []
+            }
+
+            if action not in allowed_transitions.get(quotation.status, []):
+                return Response({'message': f'Action {action} not allowed in {quotation.status} state'}, status=400)
+
+            old_status = quotation.status
+
+            message = "Action performed successfully"
+
             if action == 'save_draft':
                 quotation.status = 'Draft'
+                message = "Quotation saved as draft"
             elif action == 'submit':
-                quotation.status = 'Send'
+                quotation.status = 'Submitted'
+                message = "Quotation submitted successfully"
             elif action == 'approve':
                 quotation.status = 'Approved'
+                message = "Quotation approved successfully"
             elif action == 'reject':
                 quotation.status = 'Rejected'
+                message = "Quotation rejected successfully"
             elif action == 'convert_to_so':
-                quotation.status = 'Converted (SO)'
-            elif action == 'cancel':
-                quotation.status = 'Expired'  # Or handle cancellation differently if needed
-            else:
-                serializer = QuotationCreateSerializer(quotation, data=request.data, partial=True, context={'request': request})
-                if serializer.is_valid():
-                    serializer.save()
-                    return Response(QuotationSerializer(quotation).data, status=status.HTTP_200_OK)
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                quotation.status = 'Converted to SO'
+                message = "Quotation converted to Sales Order successfully"
+            elif action == 'revise':
+                revision_no = quotation.revise_count + 1
+                QuotationRevision.objects.create(
+                    quotation=quotation,
+                    revision_no=revision_no,
+                    created_by=request.user,
+                    comment=request.data.get('comment', ''),
+                    status='Submitted'
+                )
+                quotation.revise_count = revision_no
+                quotation.status = 'Submitted'
+                message = "Quotation revised successfully"
+
+            quotation.updated_by = request.user
             quotation.save()
-            QuotationHistory.objects.create(quotation=quotation, status=quotation.status, action_by=request.user)
-            return Response(QuotationSerializer(quotation).data, status=status.HTTP_200_OK)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
-    
-    def delete(self, request, pk):
-        try:
-            quotation = Quotation.objects.get(id=pk, user=request.user)
-            quotation.delete()
-            return Response({'message': 'Quotation deleted successfully'}, status=status.HTTP_200_OK)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
-        
 
-class QuotationAttachmentView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, pk):
-        try:
-            quotation = Quotation.objects.get(id=pk, user=request.user)
-            attachment_data = {
-                'file': request.FILES.get('file'),
-                'uploaded_by': request.user,
-            }
-            attachment = QuotationAttachment.objects.create(quotation=quotation, **attachment_data)
-            serializer = QuotationAttachmentSerializer(attachment)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def get(self, request, pk):
-        try:
-            quotation = Quotation.objects.get(id=pk, user=request.user)
-            attachments = quotation.attachments.all()
-            serializer = QuotationAttachmentSerializer(attachments, many=True)
-            return Response(serializer.data)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def delete(self, request, pk, attachment_id):
-        try:
-            quotation = Quotation.objects.get(id=pk, user=request.user)
-            attachment = QuotationAttachment.objects.get(id=attachment_id, quotation=quotation)
-            attachment.delete()
-            return Response({'message': 'Attachment deleted'}, status=status.HTTP_204_NO_CONTENT)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Attachment or Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
-
-class QuotationCommentView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, pk):
-        try:
-            quotation = Quotation.objects.get(id=pk, user=request.user)
-            comment_data = {
-                'person_name': request.user,
-                'comment': request.data.get('comment'),
-            }
-            comment = QuotationComment.objects.create(quotation=quotation, **comment_data)
-            serializer = QuotationCommentSerializer(comment)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def get(self, request, pk):
-        try:
-            quotation = Quotation.objects.get(id=pk, user=request.user)
-            comments = quotation.comments.all()
-            serializer = QuotationCommentSerializer(comments, many=True)
-            return Response(serializer.data)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
-
-class QuotationHistoryView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request, pk):
-        try:
-            quotation = Quotation.objects.get(id=pk, user=request.user)
-            history = quotation.history.all()
-            serializer = QuotationHistorySerializer(history, many=True)
-            return Response(serializer.data)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    def post(self, request, pk):
-        try:
-            quotation = Quotation.objects.get(id=pk, user=request.user)
-            history_data = {
-                'status': request.data.get('status'),
-                'action_by': request.user,
-            }
-            history = QuotationHistory.objects.create(quotation=quotation, **history_data)
-            serializer = QuotationHistorySerializer(history)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Quotation not found'}, status=status.HTTP_404_NOT_FOUND)
-
-
-
-
-
-
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status, permissions
-from django.core.exceptions import ObjectDoesNotExist
-from django.http import HttpResponse
-from django.template.loader import render_to_string
-from django.core.mail import EmailMessage
-import pdfkit
-import os
-
-from .models import Quotation
-from .serializers import QuotationSerializer    # ⬅ FIXED (you forgot this import)
-
-
-# Path for wkhtmltopdf
-WKHTMLTOPDF_PATH = (
-    r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
-    if os.name == "nt"
-    else "/usr/bin/wkhtmltopdf"
-)
-config = pdfkit.configuration(wkhtmltopdf=WKHTMLTOPDF_PATH)
-
-
-
-# ---------------------------------------------------------
-# PDF GENERATION VIEW
-# ---------------------------------------------------------
-class QuotationPDFView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request, pk):
-        try:
-            quotation = Quotation.objects.get(id=pk, user=request.user)
-            items = quotation.items.all()
-
-            subtotal = sum(item.total for item in items)
-            global_discount_amount = subtotal * (quotation.globalDiscount / 100)
-            grand_total = subtotal - global_discount_amount + quotation.shippingCharges
-
-            context = {
-                "quotation": quotation,
-                "items": items,
-                "subtotal": subtotal,
-                "global_discount_amount": global_discount_amount,
-                "grand_total": grand_total,
-                "comments": quotation.comments.all(),
-                "attachments": quotation.attachments.all(),
-                "revisions": quotation.revisions.all(),
-                "history": quotation.history.all(),
-            }
-
-            html = render_to_string("quotation_pdf.html", context)
-
-            options = {
-                "page-size": "A4",
-                "margin-top": "10mm",
-                "margin-right": "10mm",
-                "margin-bottom": "10mm",
-                "margin-left": "10mm",
-                "encoding": "UTF-8",
-                "dpi": 300,
-                "zoom": 1,
-                "enable-local-file-access": None,
-            }
-
-            pdf = pdfkit.from_string(html, False, configuration=config, options=options)
-
-            response = HttpResponse(pdf, content_type="application/pdf")
-            response["Content-Disposition"] = (
-                f'attachment; filename="quotation_{quotation.quotation_id}.pdf"'
-            )
-            return response
-
-        except ObjectDoesNotExist:
-            return Response(
-                {"error": "Quotation not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        except Exception as e:
-            return Response(
-                {"error": f"PDF generation failed: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-
-
-# ---------------------------------------------------------
-# EMAIL QUOTATION VIEW
-# ---------------------------------------------------------
-class QuotationEmailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, pk):
-        try:
-            quotation = Quotation.objects.get(id=pk, user=request.user)
-            email = request.data.get('email')
-
-            if not email:
-                return Response(
-                    {'error': 'Email is required'},
-                    status=status.HTTP_400_BAD_REQUEST
+            if quotation.status != old_status:
+                QuotationHistory.objects.create(
+                    quotation=quotation,
+                    event_type='status_change',
+                    status=quotation.status,
+                    action_by=request.user
                 )
 
-            # ----- Calculate grand total -----
-            items = quotation.items.all()
-            subtotal = sum(item.total for item in items)
-            global_discount_amount = subtotal * (quotation.globalDiscount / 100)
-            grand_total = subtotal - global_discount_amount + quotation.shippingCharges
+            return Response({"message": message})
+        except Quotation.DoesNotExist:
+            return Response({'message': 'Quotation not found'}, status=404)
 
-            # ----- Email HTML -----
-            html_content = f"""
-                <html>
-                    <body>
-                        <h2>Quotation Details</h2>
-                        <p><strong>Quotation ID:</strong> {quotation.quotation_id}</p>
-                        <p><strong>Customer:</strong> {quotation.customer_name}</p>
-                        <p><strong>Date:</strong> {quotation.quotation_date}</p>
-                        <p><strong>Total:</strong> ₹{grand_total}</p>
-                        <br>
-                        <p>Thank you for your business!</p>
-                    </body>
-                </html>
-            """
 
-            subject = f'Quotation {quotation.quotation_id}'
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework import generics
+from .models import QuotationAttachment, Quotation
+from .serializers import QuotationAttachmentSerializer
 
-            msg = EmailMessage(subject, html_content, to=[email])
-            msg.content_subtype = 'html'  # send as HTML
-            msg.send()
 
-            return Response({'message': 'Email sent successfully'}, status=status.HTTP_200_OK)
+class QuotationAttachmentView(generics.ListCreateAPIView):
+    serializer_class = QuotationAttachmentSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    parser_classes = (MultiPartParser, FormParser)
 
-        except ObjectDoesNotExist:
-            return Response(
-                {'error': 'Quotation not found'},
-                status=status.HTTP_404_NOT_FOUND
+    def get_queryset(self):
+        quotation_id = self.kwargs['pk']
+        return QuotationAttachment.objects.filter(quotation_id=quotation_id)
+
+    def perform_create(self, serializer):
+        quotation = Quotation.objects.get(id=self.kwargs['pk'])
+        serializer.save(
+            quotation=quotation,
+            uploaded_by=self.request.user
+        )
+
+class QuotationAttachmentDeleteView(generics.DestroyAPIView):
+    queryset = QuotationAttachment.objects.all()
+    serializer_class = QuotationAttachmentSerializer
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+
+
+class QuotationPDFView(APIView):
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+
+    def get(self, request, pk):
+        try:
+            quotation = Quotation.objects.get(id=pk)
+            context = {
+                'quotation': quotation,
+                'items': quotation.items.all(),
+                'subtotal': quotation.subtotal,
+                'tax_summary': quotation.tax_summary,
+                'global_discount': quotation.global_discount,
+                'shipping_charges': quotation.shipping_charges,
+                'rounding_adjustment': quotation.rounding_adjustment,
+                'grand_total': quotation.grand_total,
+                'comments': quotation.comments.all(),
+                'history': quotation.history.all(),
+                'revisions': quotation.revisions.all()
+            }
+
+            html_string = render_to_string('quotation_pdf.html', context)
+            html = HTML(string=html_string, base_url=request.build_absolute_uri())
+            pdf_buffer = BytesIO()
+            html.write_pdf(pdf_buffer)
+
+            # Log PDF generation
+            QuotationHistory.objects.create(
+                quotation=quotation,
+                event_type='pdf_generated',
+                action_by=request.user
             )
 
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            response = HttpResponse(content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="Quotation_{quotation.quotation_id}.pdf"'
+            response.write(pdf_buffer.getvalue())
+            return response
+        except Quotation.DoesNotExist:
+            return Response({'error': 'Quotation not found'}, status=404)
 
+
+class QuotationMailView(APIView):
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+
+    def post(self, request, pk):
+        try:
+            quotation = Quotation.objects.get(id=pk)
+            recipient = request.data.get('email', quotation.customer.email)
+
+            context = {
+                'quotation': quotation,
+                'items': quotation.items.all(),
+                'subtotal': quotation.subtotal,
+                'tax_summary': quotation.tax_summary,
+                'grand_total': quotation.grand_total
+            }
+
+            html_message = render_to_string('quotation_email.html', context)
+
+            email = EmailMessage(
+                subject=f'Quotation {quotation.quotation_id}',
+                body=html_message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[recipient]
+            )
+            email.content_subtype = 'html'
+            email.send()
+
+            # Log email sent
+            QuotationHistory.objects.create(
+                quotation=quotation,
+                event_type='email_sent',
+                extra_info=f"sent to {recipient}",
+                action_by=request.user
+            )
+
+            return Response({'message': 'Email sent successfully'}, status=200)
+        except Quotation.DoesNotExist:
+            return Response({'error': 'Quotation not found'}, status=404)
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
 from .models import SalesOrder, SalesOrderItem, SalesOrderComment, SalesOrderHistory, DeliveryNote, DeliveryNoteItem, DeliveryNoteCustomerAcknowledgement, DeliveryNoteAttachment, DeliveryNoteRemark, Invoice, InvoiceItem, InvoiceAttachment, InvoiceRemark, OrderSummary
-from .serializers import SalesOrderSerializer, SalesOrderCreateSerializer, SalesOrderCommentSerializer, SalesOrderHistorySerializer, DeliveryNoteSerializer, DeliveryNoteItemSerializer, DeliveryNoteCustomerAcknowledgementSerializer, DeliveryNoteAttachmentSerializer, DeliveryNoteRemarkSerializer, InvoiceSerializer, InvoiceItemSerializer, OrderSummarySerializer
+from .serializers import  SalesOrderHistorySerializer, DeliveryNoteSerializer, DeliveryNoteItemSerializer, DeliveryNoteCustomerAcknowledgementSerializer, DeliveryNoteAttachmentSerializer, DeliveryNoteRemarkSerializer, InvoiceSerializer, InvoiceItemSerializer, OrderSummarySerializer
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import HttpResponse
 from reportlab.lib import colors
@@ -387,200 +405,330 @@ from django.core.mail import EmailMessage
 from django.template.loader import render_to_string
 import io
 from django.utils import timezone
+# views.py
 
-# Existing SalesOrder views
-class SalesOrderListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+from rest_framework import generics, status
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 
-    def get(self, request):
-        sales_orders = SalesOrder.objects.all().order_by('-created_at')
-        serializer = SalesOrderSerializer(sales_orders, many=True)
-        return Response(serializer.data)
+from django.http import HttpResponse
+from django.template.loader import render_to_string
+from django.conf import settings
+from django.core.mail import EmailMessage
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
-    def post(self, request):
-        serializer = SalesOrderCreateSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            sales_order = serializer.save()
-            return Response(SalesOrderSerializer(sales_order).data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+from io import BytesIO
+from weasyprint import HTML
 
+from .models import SalesOrder, SalesOrderHistory
+from .serializers import SalesOrderSerializer, SalesOrderWriteSerializer
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+
+from core.permissions import RoleBasedPermission  
+
+# Placeholder for PurchaseOrder generation (to be implemented later)
+def generate_purchase_order(sales_order, partial=False):
+    # TODO: Implement full PurchaseOrder creation logic
+    # For insufficient items, create PO for (quantity - product.quantity_in_stock)
+    # If partial, create for partial quantities or handle differently
+    insufficient = []
+    for item in sales_order.items.all():
+        available = item.product.quantity # Assuming field exists in Product model
+        if available < item.quantity:
+            deficient = item.quantity - available if not partial else item.quantity  # Adjust logic as needed for partial
+            insufficient.append({'product': item.product, 'quantity': deficient})
     
+    # Create PurchaseOrder with insufficient items
+    # Example placeholder:
+    # from purchases.models import PurchaseOrder, PurchaseOrderItem  # Assume imports
+    # purchase_order = PurchaseOrder.objects.create(...)  # Fill with relevant data from sales_order
+    # for def_item in insufficient:
+    #     PurchaseOrderItem.objects.create(purchase_order=purchase_order, **def_item)
+    
+    # Return purchase_order or success message
+    return {'message': f'Purchase Order generated ({"partial" if partial else "full"} placeholder)'}
 
-class SalesOrderDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+# Placeholder for DeliveryNote generation
+def generate_delivery_note(sales_order):
+    # TODO: Implement full DeliveryNote creation
+    # from deliveries.models import DeliveryNote, DeliveryNoteItem  # Assume
+    # delivery_note = DeliveryNote.objects.create(
+    #     delivery_date=timezone.now().date(),
+    #     sales_order=sales_order,
+    #     customer=sales_order.customer,
+    #     # ... other fields
+    # )
+    # for item in sales_order.items.all():
+    #     DeliveryNoteItem.objects.create(
+    #         delivery_note=delivery_note,
+    #         product=item.product,
+    #         quantity=item.quantity
+    #     )
+    # Update inventory, etc.
+    return {'message': 'Delivery Note generated (placeholder)'}
 
-    def get(self, request, pk):
-        try:
-            sales_order = SalesOrder.objects.get(id=pk)
-            serializer = SalesOrderSerializer(sales_order)
-            return Response(serializer.data)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Sales Order not found'}, status=status.HTTP_404_NOT_FOUND)
+# Placeholder for Invoice generation
+def generate_invoice(sales_order):
+    # TODO: Implement full Invoice creation
+    # from invoices.models import Invoice, InvoiceItem  # Assume
+    # invoice = Invoice.objects.create(
+    #     invoice_date=timezone.now().date(),
+    #     due_date=sales_order.due_date,
+    #     sales_order=sales_order,
+    #     customer=sales_order.customer,
+    #     # ... other fields
+    # )
+    # for item in sales_order.items.all():
+    #     InvoiceItem.objects.create(
+    #         invoice=invoice,
+    #         product=item.product,
+    #         quantity=item.quantity,
+    #         unit_price=item.unit_price,
+    #         discount=item.discount,
+    #         tax=item.tax
+    #     )
+    # Calculate summary, etc.
+    return {'message': 'Invoice generated (placeholder)'}
 
-    def put(self, request, pk):
-        try:
-            sales_order = SalesOrder.objects.get(id=pk)
-            action = request.data.get('action')
-            if action == 'save_draft':
-                sales_order.status = 'Draft'
-            elif action == 'submit':
-                sales_order.status = 'Submitted'
-            elif action == 'submit_pd':
-                sales_order.status = 'Submitted(PD)'
-            elif action == 'cancel':
-                sales_order.status = 'Cancelled'
-            elif action == 'convert_to_delivery':
-                return Response(self.convert_to_delivery_note(sales_order))
-            elif action == 'convert_to_invoice':
-                return Response(self.convert_to_invoice(sales_order))
-            else:
-                serializer = SalesOrderCreateSerializer(sales_order, data=request.data, partial=True, context={'request': request})
-                if serializer.is_valid():
-                    serializer.save()
-                    return Response(SalesOrderSerializer(sales_order).data, status=status.HTTP_200_OK)
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-            sales_order.save()
-            SalesOrderHistory.objects.create(sales_order=sales_order, action=action, user=request.user)
-            return Response(SalesOrderSerializer(sales_order).data, status=status.HTTP_200_OK)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Sales Order not found'}, status=status.HTTP_404_NOT_FOUND)
-        
-    def delete(self, request, pk):
-        try:
-            sales_order = SalesOrder.objects.get(id=pk)
-            sales_order.delete()
-            return Response({'message': 'Sales Order deleted successfully'}, status=status.HTTP_200_OK)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Sales Order not found'}, status=status.HTTP_404_NOT_FOUND)
+class SalesOrderListCreateView(generics.ListCreateAPIView):
+    queryset = SalesOrder.objects.select_related('customer', 'sales_rep').order_by('-created_at')
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
 
-    def convert_to_delivery_note(self, sales_order):
-        delivery_data = {
-            'delivery_date': timezone.now().date(),
-            'sales_order_reference': sales_order.id,
-            'customer_name': sales_order.customer.name,
-            'delivery_type': 'Regular',
-            'destination_address': sales_order.customer.address,
-            'delivery_status': 'Draft',
-        }
-        serializer = DeliveryNoteSerializer(data=delivery_data)
-        if serializer.is_valid():
-            delivery_note = serializer.save()
-            for item in sales_order.items.all():
-                item_data = {
-                    'product': item.product.id,
-                    'quantity': item.quantity,
-                }
-                item_serializer = DeliveryNoteItemSerializer(data=item_data)
-                if item_serializer.is_valid():
-                    delivery_item = item_serializer.save()
-                    delivery_note.items.add(delivery_item)
-            return DeliveryNoteSerializer(delivery_note).data
-        return serializer.errors
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return SalesOrderWriteSerializer
+        return SalesOrderSerializer
 
-    def convert_to_invoice(self, sales_order):
-        invoice_data = {
-            'invoice_date': timezone.now().date(),
-            'due_date': timezone.now().date() + timezone.timedelta(days=30),
-            'sales_order_reference': sales_order.id,
-            'customer': sales_order.customer.id,
-            'billing_address': sales_order.customer.address,
-            'shipping_address': sales_order.customer.address,
-            'email_id': sales_order.customer.email,
-            'phone_number': sales_order.customer.phone_number,
-            'payment_terms': 'Net 30',
-            'currency': sales_order.currency,
-        }
-        serializer = InvoiceSerializer(data=invoice_data)
-        if serializer.is_valid():
-            invoice = serializer.save()
-            for item in sales_order.items.all():
-                item_data = {
-                    'product': item.product.id,
-                    'quantity': item.quantity,
-                    'unit_price': item.unit_price,
-                    'discount': item.discount,
-                }
-                item_serializer = InvoiceItemSerializer(data=item_data)
-                if item_serializer.is_valid():
-                    invoice_item = item_serializer.save()
-                    invoice.items.add(invoice_item)
-            summary_data = {'invoice': invoice.id, 'subtotal': sum(i.total for i in invoice.items.all())}
-            OrderSummarySerializer().create(summary_data)
-            return InvoiceSerializer(invoice).data
-        return serializer.errors
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
 
-class SalesOrderCommentView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+        page_number = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('limit', 10))
+
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = self.get_serializer(page, many=True)
+
+        from_count = (page.number - 1) * page_size + 1
+        to_count = from_count + len(page.object_list) - 1 if page.object_list else 0
+
+        return Response({
+            "message": "Sales Orders fetched successfully",
+            "data": {
+                "from": from_count,
+                "to": to_count,
+                "totalCount": paginator.count,
+                "totalPages": paginator.num_pages,
+                "data": serializer.data
+            }
+        })
+
+    def create(self, request, *args, **kwargs):
+        write_serializer = SalesOrderWriteSerializer(
+            data=request.data,
+            context={'request': request}
+        )
+        write_serializer.is_valid(raise_exception=True)
+        sales_order = write_serializer.save()
+
+        read_serializer = SalesOrderSerializer(sales_order)
+        return Response({
+            "message": "Sales Order created successfully",
+            "data": read_serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+
+class SalesOrderDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = SalesOrder.objects.select_related('customer', 'sales_rep')
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
+    lookup_field = 'pk'
+
+    def get_serializer_class(self):
+        if self.request.method == 'GET':
+            return SalesOrderSerializer
+        return SalesOrderWriteSerializer
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "message": "Sales Order fetched successfully",
+            "data": serializer.data
+        })
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = SalesOrderWriteSerializer(
+            instance,
+            data=request.data,
+            partial=True,
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        sales_order = serializer.save()
+        return Response({
+            "message": "Sales Order updated successfully"
+        })
+
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return Response({
+            "message": "Sales Order deleted successfully"
+        })
+
+
+class SalesOrderActionView(APIView):
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
 
     def post(self, request, pk):
-        try:
-            sales_order = SalesOrder.objects.get(id=pk, sales_rep=request.user)
-            comment_data = {'user': request.user, 'comment': request.data.get('comment')}
-            comment = SalesOrderComment.objects.create(sales_order=sales_order, **comment_data)
-            serializer = SalesOrderCommentSerializer(comment)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Sales Order not found'}, status=status.HTTP_404_NOT_FOUND)
+        sales_order = get_object_or_404(SalesOrder, id=pk)
+        action = request.data.get('action')
 
-    def get(self, request, pk):
-        try:
-            sales_order = SalesOrder.objects.get(id=pk, sales_rep=request.user)
-            comments = sales_order.comments.all()
-            serializer = SalesOrderCommentSerializer(comments, many=True)
-            return Response(serializer.data)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Sales Order not found'}, status=status.HTTP_404_NOT_FOUND)
+        allowed_transitions = {
+            'Draft': ['save_draft', 'submit', 'submit_pd', 'cancel', 'generate_po'],
+            'Ready to Submit': ['submit', 'submit_pd', 'cancel'],
+            'Submitted': ['convert_to_delivery', 'convert_to_invoice', 'cancel'],
+            'Submitted(PD)': ['convert_to_delivery', 'convert_to_invoice', 'cancel'],
+            'Partially Delivered': ['convert_to_delivery', 'convert_to_invoice'],
+            'Delivered': [],
+            'Cancelled': [],
+        }
 
-class SalesOrderHistoryView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+        if action not in allowed_transitions.get(sales_order.status, []):
+            return Response({'error': f'Action {action} not allowed in {sales_order.status} state'}, status=400)
 
-    def get(self, request, pk):
-        try:
-            sales_order = SalesOrder.objects.get(id=pk, sales_rep=request.user)
-            history = sales_order.history.all()
-            serializer = SalesOrderHistorySerializer(history, many=True)
-            return Response(serializer.data)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Sales Order not found'}, status=status.HTTP_404_NOT_FOUND)
+        old_status = sales_order.status
+
+        if action == 'save_draft':
+            sales_order.status = 'Draft'
+        elif action == 'submit':
+            insufficient = []
+            for item in sales_order.items.all():
+                available = item.product.quantity  # Assuming field
+                if available < item.quantity:
+                    insufficient.append({
+                        'product': item.product.id,
+                        'required': item.quantity,
+                        'available': available
+                    })
+            if insufficient:
+                return Response({'error': 'insufficient_stock', 'details': insufficient}, status=400)
+            sales_order.status = 'Submitted'
+        elif action == 'submit_pd':
+            # For partial, assume some logic, perhaps no full check
+            sales_order.status = 'Submitted(PD)'
+        elif action == 'cancel':
+            sales_order.status = 'Cancelled'
+        elif action == 'generate_po':
+            partial = request.data.get('partial', False)
+            result = generate_purchase_order(sales_order, partial)
+            SalesOrderHistory.objects.create(
+                sales_order=sales_order,
+                event_type='po_generated',
+                extra_info=str(result),
+                action_by=request.user
+            )
+            sales_order.status = 'Ready to Submit'  # After PO, ready to submit again
+        elif action == 'convert_to_delivery':
+            result = generate_delivery_note(sales_order)
+            # Update status based on full or partial
+            sales_order.status = 'Delivered' if sales_order.status == 'Submitted' else 'Partially Delivered'
+            # Log if needed
+        elif action == 'convert_to_invoice':
+            result = generate_invoice(sales_order)
+            # No status change assumed, or adjust as needed
+
+        sales_order.updated_by = request.user
+        sales_order.save()
+
+        if sales_order.status != old_status:
+            SalesOrderHistory.objects.create(
+                sales_order=sales_order,
+                event_type='status_change',
+                status=sales_order.status,
+                action_by=request.user
+            )
+
+        return Response(SalesOrderSerializer(sales_order).data, status=200)
+
 
 class SalesOrderPDFView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
 
     def get(self, request, pk):
-        try:
-            sales_order = SalesOrder.objects.get(id=pk, sales_rep=request.user)
-            buffer = io.BytesIO()
-            doc = SimpleDocTemplate(buffer, pagesize=letter)
-            elements = [
-                Paragraph(f"Sales Order ID: {sales_order.sales_order_id}", style={'fontName': 'Helvetica-Bold', 'fontSize': 14}),
-                Paragraph(f"Date: {sales_order.order_date}", style={'fontName': 'Helvetica', 'fontSize': 12}),
-                Paragraph(f"Customer: {sales_order.customer.name}", style={'fontName': 'Helvetica', 'fontSize': 12}),
-            ]
-            doc.build(elements)
-            buffer.seek(0)
-            response = HttpResponse(buffer, content_type='application/pdf')
-            response['Content-Disposition'] = f'attachment; filename="sales_order_{sales_order.sales_order_id}.pdf"'
-            return response
-        except ObjectDoesNotExist:
-            return Response({'error': 'Sales Order not found'}, status=status.HTTP_404_NOT_FOUND)
+        sales_order = get_object_or_404(SalesOrder, id=pk)
+        context = {
+            'sales_order': sales_order,
+            'items': sales_order.items.all(),
+            'subtotal': sales_order.subtotal,
+            'tax_summary': sales_order.tax_summary,
+            'global_discount': sales_order.global_discount,
+            'shipping_charges': sales_order.shipping_charges,
+            'rounding_adjustment': sales_order.rounding_adjustment,
+            'grand_total': sales_order.grand_total,
+            'comments': sales_order.comments.all(),
+            'history': sales_order.history.all()
+        }
 
-class SalesOrderEmailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+        html_string = render_to_string('sales_order_pdf.html', context)  # Assume template exists
+        html = HTML(string=html_string, base_url=request.build_absolute_uri())
+        pdf_buffer = BytesIO()
+        html.write_pdf(pdf_buffer)
+
+        SalesOrderHistory.objects.create(
+            sales_order=sales_order,
+            event_type='pdf_generated',
+            action_by=request.user
+        )
+
+        response = HttpResponse(content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="SalesOrder_{sales_order.sales_order_id}.pdf"'
+        response.write(pdf_buffer.getvalue())
+        return response
+
+
+class SalesOrderMailView(APIView):
+    permission_classes = [IsAuthenticated, RoleBasedPermission]
 
     def post(self, request, pk):
-        try:
-            sales_order = SalesOrder.objects.get(id=pk, sales_rep=request.user)
-            email = request.data.get('email')
-            if not email:
-                return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
-            subject = f'Sales Order {sales_order.sales_order_id}'
-            html_message = render_to_string('sales_order_email_template.html', {'sales_order': sales_order})
-            msg = EmailMessage(subject, html_message, to=[email])
-            msg.content_subtype = 'html'
-            msg.send()
-            return Response({'message': 'Email sent successfully'}, status=status.HTTP_200_OK)
-        except ObjectDoesNotExist:
-            return Response({'error': 'Sales Order not found'}, status=status.HTTP_404_NOT_FOUND)
+        sales_order = get_object_or_404(SalesOrder, id=pk)
+        recipient = request.data.get('email', sales_order.customer.email)  # Assume customer has email
+
+        context = {
+            'sales_order': sales_order,
+            'items': sales_order.items.all(),
+            'subtotal': sales_order.subtotal,
+            'tax_summary': sales_order.tax_summary,
+            'grand_total': sales_order.grand_total
+        }
+
+        html_message = render_to_string('sales_order_email.html', context)  # Assume template
+
+        email = EmailMessage(
+            subject=f'Sales Order {sales_order.sales_order_id}',
+            body=html_message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[recipient]
+        )
+        email.content_subtype = 'html'
+        email.send()
+
+        SalesOrderHistory.objects.create(
+            sales_order=sales_order,
+            event_type='email_sent',
+            extra_info=f"sent to {recipient}",
+            action_by=request.user
+        )
+
+        return Response({'message': 'Email sent successfully'}, status=200)
+
+
+
 
 # Existing DeliveryNote views
 class DeliveryNoteListView(APIView):

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sales Order {{ sales_order.sales_order_id }}</title>
+    <style>
+        body { font-family: 'Helvetica', Arial, sans-serif; font-size: 11pt; margin: 40px; }
+        h1 { font-size: 18pt; margin-bottom: 10px; color: #2c3e50; }
+        h2 { font-size: 14pt; color: #34495e; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+        table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f5f5f5; font-weight: bold; }
+        .header { margin-bottom: 30px; }
+        .company-info { float: right; text-align: right; }
+        .customer-info { margin: 20px 0; }
+        .summary { margin-top: 30px; font-size: 12pt; }
+        .summary td { border: none; padding: 6px 0; }
+        .total { font-weight: bold; font-size: 13pt; }
+        .footer { margin-top: 50px; font-size: 9pt; color: #777; text-align: center; }
+        .amount { text-align: right; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Sales Order</h1>
+        <div class="company-info">
+            <strong>Your Company Name</strong><br>
+            123 Business Street, Hyderabad, Telangana<br>
+            GSTIN: 36ABCDE1234F1Z5<br>
+            Email: sales@yourcompany.com<br>
+            Phone: +91 98765 43210
+        </div>
+    </div>
+
+    <table>
+        <tr>
+            <td><strong>Sales Order ID:</strong> {{ sales_order.sales_order_id }}</td>
+            <td class="amount"><strong>Date:</strong> {{ sales_order.order_date|date:"d M Y" }}</td>
+        </tr>
+        <tr>
+            <td><strong>Sales Rep:</strong> {{ sales_order.sales_rep|default:"-" }}</td>
+            <td class="amount"><strong>Order Type:</strong> {{ sales_order.order_type }}</td>
+        </tr>
+    </table>
+
+    <h2>Customer Information</h2>
+    <div class="customer-info">
+        <strong>{{ sales_order.customer.name }}</strong><br>
+        {{ sales_order.customer.address|default:"-" }}<br>
+        Email: {{ sales_order.customer.email|default:"-" }}<br>
+        Phone: {{ sales_order.customer.phone|default:"-" }}
+    </div>
+
+    <h2>Order Items</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Product</th>
+                <th>Product ID</th>
+                <th>Quantity</th>
+                <th>UOM</th>
+                <th>Unit Price</th>
+                <th>Discount (%)</th>
+                <th>Tax (%)</th>
+                <th class="amount">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ item.product_name }}</td>
+                <td>{{ item.product_id_display }}</td>
+                <td>{{ item.quantity }}</td>
+                <td>{{ item.uom|default:"-" }}</td>
+                <td class="amount">{{ item.unit_price|floatformat:2 }}</td>
+                <td class="amount">{{ item.discount|floatformat:2 }}</td>
+                <td class="amount">{{ item.tax_rate|floatformat:2 }}</td>
+                <td class="amount">{{ item.total|floatformat:2 }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="9" style="text-align:center;">No items</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <table class="summary">
+        <tr>
+            <td>Subtotal</td>
+            <td class="amount">{{ subtotal|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td>Global Discount ({{ sales_order.global_discount }}%)</td>
+            <td class="amount">-{{ sales_order.global_discount_amount|default:0|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td>Tax</td>
+            <td class="amount">{{ tax_summary|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td>Shipping Charges</td>
+            <td class="amount">{{ sales_order.shipping_charges|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td>Rounding Adjustment</td>
+            <td class="amount">{{ sales_order.rounding_adjustment|floatformat:2 }}</td>
+        </tr>
+        <tr class="total">
+            <td><strong>Grand Total</strong></td>
+            <td class="amount"><strong>{{ grand_total|floatformat:2 }} {{ sales_order.currency }}</strong></td>
+        </tr>
+    </table>
+
+    {% if sales_order.terms_conditions %}
+    <h2>Terms & Conditions</h2>
+    <p>{{ sales_order.terms_conditions|linebreaksbr }}</p>
+    {% endif %}
+
+    {% if sales_order.customer_notes %}
+    <h2>Customer Notes</h2>
+    <p>{{ sales_order.customer_notes|linebreaksbr }}</p>
+    {% endif %}
+
+    <div class="footer">
+        This is a computer-generated document. No signature required.<br>
+        Generated on {{ now|date:"d M Y H:i" }} by {{ request.user.get_full_name|default:request.user.username }}
+    </div>
+
+</body>
+</html>

@@ -52,10 +52,30 @@ def validate_permissions(value):
 # ────────────────────────────────────────────────
 
 class BranchSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+
     class Meta:
         model = Branch
-        fields = ['id', 'name', 'is_active', 'created_at', 'updated_at']
-        read_only_fields = ['created_at', 'updated_at']
+        fields = ['id', 'name', 'is_active', 'created_at', 'updated_at', 'created_by', 'updated_by']
+        read_only_fields = ['created_at', 'updated_at', 'created_by', 'updated_by']
+    
+    def validate_name(self, value):
+        qs = Branch.objects.filter(name__iexact=value)
+
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+
+        if qs.exists():
+            raise serializers.ValidationError("Branch with this name already exists.")
+
+        return value
+    
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
 
 
 # ────────────────────────────────────────────────
@@ -83,14 +103,21 @@ class DepartmentBaseSerializer(serializers.ModelSerializer):
 class RoleReadSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source='department.department_name', read_only=True)
     branch_name     = serializers.CharField(source='branch.name', read_only=True)
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
 
     class Meta:
         model = Role
         fields = [
             'id', 'role', 'description', 'permissions',
             'department_name', 'branch_name',
-            'is_active', 'created_at', 'updated_at'   
+            'is_active', 'created_at', 'updated_at' ,'created_by', 'updated_by',
         ]
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
 
 
 # ────────────────────────────────────────────────
@@ -142,15 +169,23 @@ class DepartmentCreateWithRolesSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         roles_data = validated_data.pop('roles', [])
-        department = Department.objects.create(**validated_data)
+        department = Department.objects.create(
+            **validated_data,
+            created_by=self.context['request'].user,
+            updated_by=self.context['request'].user
+        )
+
 
         for role_data in roles_data:
             role_data.pop('id', None)  # ignore any sent id
             Role.objects.create(
                 department=department,
                 branch=department.branch,
+                created_by=self.context['request'].user,
+                updated_by=self.context['request'].user,
                 **role_data
             )
+
 
         return department
 
@@ -161,7 +196,8 @@ class DepartmentUpdateWithRolesSerializer(serializers.ModelSerializer):
         required=False
     )
     roles = NestedRoleSerializer(many=True, required=False, allow_empty=True)
-
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
     class Meta:
         model = Department
         fields = [
@@ -173,9 +209,9 @@ class DepartmentUpdateWithRolesSerializer(serializers.ModelSerializer):
             'is_active',        # if you have this field
             'created_at',
             'updated_at',
-            'roles'
+            'roles', 'created_by', 'updated_by'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by']
 
     def validate_department_name(self, value):
         return validate_letters_space(value, "Department name")
@@ -185,6 +221,12 @@ class DepartmentUpdateWithRolesSerializer(serializers.ModelSerializer):
 
     def validate_description(self, value):
         return validate_description(value)
+    
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
 
     @transaction.atomic
     def update(self, instance, validated_data):
@@ -193,6 +235,7 @@ class DepartmentUpdateWithRolesSerializer(serializers.ModelSerializer):
         # Update department scalar fields (partial update)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+        instance.updated_by = self.context['request'].user
         instance.save()
 
         # Sync roles if provided (add new, update existing, delete missing)
@@ -206,6 +249,7 @@ class DepartmentUpdateWithRolesSerializer(serializers.ModelSerializer):
                         role = Role.objects.get(id=role_id, department=instance)
                         for k, v in role_data.items():
                             setattr(role, k, v)
+                        role.updated_by = self.context['request'].user
                         role.save()
                         sent_role_ids.append(role_id)
                     except Role.DoesNotExist:
@@ -215,8 +259,11 @@ class DepartmentUpdateWithRolesSerializer(serializers.ModelSerializer):
                     new_role = Role.objects.create(
                         department=instance,
                         branch=instance.branch,
+                        created_by=self.context['request'].user,
+                        updated_by=self.context['request'].user,
                         **role_data
                     )
+
                     sent_role_ids.append(new_role.id)
 
             # Delete roles not in the sent list
@@ -233,25 +280,39 @@ class DepartmentUpdateWithRolesSerializer(serializers.ModelSerializer):
 class DepartmentListSerializer(serializers.ModelSerializer):
     branch = BranchSerializer(read_only=True)
     roles  = serializers.SerializerMethodField()
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
 
     class Meta:
         model = Department
-        fields = ['id', 'code', 'department_name', 'description', 'branch', 'roles']
+        fields = ['id', 'code', 'department_name', 'description', 'branch', 'roles', 'created_by' , 'updated_by' ]
 
     def get_roles(self, obj):
         if self.context.get('include_roles', True):
             return RoleReadSerializer(obj.roles.all(), many=True).data
         return []
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
 
 
 class DepartmentDetailSerializer(serializers.ModelSerializer):
     branch = BranchSerializer(read_only=True)
     roles  = RoleReadSerializer(many=True, read_only=True)
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
 
     class Meta:
         model = Department
-        fields = ['id', 'code', 'department_name', 'description', 'branch', 'roles']
+        fields = ['id', 'code', 'department_name', 'description', 'branch', 'roles', 'created_by' , 'updated_by' ]
 
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
 # ────────────────────────────────────────────────
 # CustomUser serializers
 # ────────────────────────────────────────────────
@@ -261,15 +322,22 @@ class CustomUserDetailSerializer(serializers.ModelSerializer):
     department        = DepartmentListSerializer(read_only=True)
     role              = RoleReadSerializer(read_only=True)
     available_branches = BranchSerializer(many=True, read_only=True)
-    reporting_to       = serializers.StringRelatedField(read_only=True)  # Shows __str__ (email) — or change to get_full_name if you have it
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+    reporting_to= serializers.StringRelatedField(read_only=True)  # Shows __str__ (email) — or change to get_full_name if you have it
 
     class Meta:
         model = CustomUser
         fields = [
             'id', 'first_name', 'last_name', 'email', 'contact_number',
             'branch', 'department', 'role', 'available_branches',
-            'reporting_to', 'employee_id', 'profile_pic'
+            'reporting_to', 'employee_id', 'profile_pic','created_by', 'updated_by'
         ]
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
 
 
 class CustomUserCreateSerializer(serializers.ModelSerializer):
@@ -351,6 +419,8 @@ class CustomUserCreateSerializer(serializers.ModelSerializer):
         )
 
         # Explicitly set FKs (safety net)
+        user.created_by = self.context['request'].user
+        user.updated_by = self.context['request'].user
         user.branch = branch
         user.department = department
         user.role = role
@@ -421,7 +491,7 @@ class CustomUserUpdateSerializer(serializers.ModelSerializer):
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-
+        instance.updated_by = self.context['request'].user
         instance.save()
 
         if branches is not None:
@@ -436,55 +506,119 @@ from .models import Category, TaxCode, UOM, Warehouse, Size, Color, ProductSuppl
 
 
 class CategorySerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+
     class Meta:
         model = Category
         fields = ['id', 'name', 'is_active', 'created_at', 'updated_at', 'created_by', 'updated_by']
         read_only_fields = ['created_at', 'updated_at', 'created_by', 'updated_by']
 
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
+
 
 class TaxCodeSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+
     class Meta:
         model = TaxCode
-        fields = ['id', 'name', 'percentage', 'description', 'is_active', 'created_at', 'updated_at']
-        read_only_fields = ['created_at', 'updated_at']
+        fields = ['id', 'name', 'percentage', 'description', 'is_active', 'created_at', 'updated_at', 'created_by', 'updated_by']
+        read_only_fields = ['created_at', 'updated_at', 'created_by', 'updated_by']
+
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
 
 
 class UOMSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+
     class Meta:
         model = UOM
-        fields = ['id', 'name', 'items', 'description', 'is_active', 'created_at', 'updated_at']
-        read_only_fields = ['created_at', 'updated_at']
+        fields = ['id', 'name', 'items', 'description', 'is_active', 'created_at', 'updated_at', 'created_by', 'updated_by']
+        read_only_fields = ['created_at', 'updated_at', 'created_by', 'updated_by']
+
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
 
 
 class WarehouseSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+
     class Meta:
         model = Warehouse
-        fields = ['id', 'name', 'location', 'manager_name', 'contact_info', 'notes', 'is_active', 'created_at', 'updated_at']
-        read_only_fields = ['created_at', 'updated_at']
+        fields = ['id', 'name', 'location', 'manager_name', 'contact_info', 'notes', 'is_active', 'created_at', 'updated_at', 'created_by', 'updated_by']
+        read_only_fields = ['created_at', 'updated_at', 'created_by', 'updated_by']
+
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
 
 
 class SizeSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+
     class Meta:
         model = Size
-        fields = ['id', 'name', 'is_active', 'created_at', 'updated_at']
-        read_only_fields = ['created_at', 'updated_at']
+        fields = ['id', 'name', 'is_active', 'created_at', 'updated_at', 'created_by', 'updated_by']
+        read_only_fields = ['created_at', 'updated_at', 'created_by', 'updated_by']
+
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
 
 
 class ColorSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+
     class Meta:
         model = Color
-        fields = ['id', 'name', 'is_active', 'created_at', 'updated_at']
-        read_only_fields = ['created_at', 'updated_at']
+        fields = ['id', 'name', 'is_active', 'created_at', 'updated_at', 'created_by', 'updated_by']
+        read_only_fields = ['created_at', 'updated_at', 'created_by', 'updated_by']
+
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
 
 
 class ProductSupplierSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+
     class Meta:
         model = ProductSupplier
-        fields = ['id', 'name', 'contact_person', 'phone_number', 'email', 'address', 'is_active', 'created_at', 'updated_at']
-        read_only_fields = ['created_at', 'updated_at']
+        fields = ['id', 'name', 'contact_person', 'phone_number', 'email', 'address', 'is_active', 'created_at', 'updated_at', 'created_by', 'updated_by']
+        read_only_fields = ['created_at', 'updated_at', 'created_by', 'updated_by']
+
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
 
         
 class ProductSerializer(serializers.ModelSerializer):
+    
     # Write: accept IDs
     category = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.all(),
@@ -538,8 +672,9 @@ class ProductSerializer(serializers.ModelSerializer):
     related_products_detail = serializers.SerializerMethodField(read_only=True)
 
     # Audit fields (read-only)
-    created_by = serializers.StringRelatedField(read_only=True)
-    updated_by = serializers.StringRelatedField(read_only=True)
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+    
 
     class Meta:
         model = Product
@@ -613,7 +748,8 @@ class ProductSerializer(serializers.ModelSerializer):
 
         product = Product.objects.create(
             **validated_data,
-            created_by=self.context['request'].user  # ← this line is correct
+            created_by=self.context['request'].user,
+            updated_by=self.context['request'].user
         )
 
         product.related_products.set(related_products)
@@ -634,6 +770,12 @@ class ProductSerializer(serializers.ModelSerializer):
             instance.related_products.set(related_products)
 
         return instance
+
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
     
 class CustomerSerializer(serializers.ModelSerializer):
     assigned_sales_rep = serializers.PrimaryKeyRelatedField(
@@ -643,7 +785,9 @@ class CustomerSerializer(serializers.ModelSerializer):
     )
     customer_id = serializers.CharField(required=False, allow_blank=True)
     available_limit = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
-
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+    
     # Read-only nested for detail view
     assigned_sales_rep_detail = serializers.StringRelatedField(source='assigned_sales_rep', read_only=True)
 
@@ -662,6 +806,12 @@ class CustomerSerializer(serializers.ModelSerializer):
             'created_by', 'updated_by', 'assigned_sales_rep_detail'
         ]
 
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
+    
     def validate(self, data):
         # Only enforce required fields on creation (POST)
         if self.instance is None:
@@ -704,10 +854,19 @@ class CustomerSerializer(serializers.ModelSerializer):
     
 
 class SupplierSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+    
     class Meta:
         model = Supplier
         fields = "__all__"
         read_only_fields = ['supplier_id', 'created_at', 'updated_at', 'created_by', 'updated_by']
+    
+    def get_created_by(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else None
+
+    def get_updated_by(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by else None
 
 
 class SupplierCreateUpdateSerializer(serializers.ModelSerializer):
@@ -811,21 +970,35 @@ class SupplierCreateUpdateSerializer(serializers.ModelSerializer):
 
 
 class SupplierCommentSerializer(serializers.ModelSerializer):
+    commented_by = serializers.SerializerMethodField()
     class Meta:
         model = SupplierComment
         fields = '__all__'
         read_only_fields = ['commented_by', 'timestamp']
 
+    def get_commented_by(self, obj):
+        return obj.commented_by.get_full_name() if obj.commented_by else None
+
 
 class SupplierAttachmentSerializer(serializers.ModelSerializer):
+    uploaded_by = serializers.SerializerMethodField()
+
     class Meta:
         model = SupplierAttachment
         fields = '__all__'
         read_only_fields = ['uploaded_by', 'uploaded_at']
+    
+    def get_uploaded_by(self, obj):
+        return obj.uploaded_by.get_full_name() if obj.uploaded_by else None
 
 
 class SupplierHistorySerializer(serializers.ModelSerializer):
+    changed_by = serializers.SerializerMethodField()
+
     class Meta:
         model = SupplierHistory
         fields = '__all__'
         read_only_fields = ['changed_by', 'changed_at']
+
+    def get_changed_by(self, obj):
+        return obj.changed_by.get_full_name() if obj.changed_by else None
