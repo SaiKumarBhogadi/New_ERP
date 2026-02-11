@@ -22,6 +22,7 @@ env = environ.Env()
  
 # Read .env file
 environ.Env.read_env(BASE_DIR / '.env')
+import pymysql 
 pymysql.install_as_MySQLdb()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -41,9 +42,12 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",  "https://35.154.32.180:3000"
+    "http://localhost:5173",
+    "http://35.154.32.180",       
+    "http://35.154.32.180:80",  
+    "http://127.0.0.1",
+    "http://localhost"
 ]
-
 
 # Application definition
 
@@ -204,4 +208,4 @@ EMAIL_HOST_USER=env("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD =env("EMAIL_HOST_PASSWORD")  
 
 
-FRONTEND_URL = 'https://35.154.32.180:3000'  
+FRONTEND_URL = 'http://35.154.32.180:80'  
